@@ -14,7 +14,7 @@ def true(*args, **kwargs):
 
 class ActionTestCase(unittest.TestCase):
     def setUp(self):
-        self.form = FieldStorage()
+        self.form = FieldStorage(environ={'QUERY_STRING': ''})
         self.client = MockNull()
         self.client._ok_message = []
         self.client._error_message = []
@@ -234,6 +234,7 @@ class EditItemActionTestCase(ActionTestCase):
     def setUp(self):
         ActionTestCase.setUp(self)
         self.result = []
+        self.new_id = 16
         class AppendResult:
             def __init__(inner_self, name):
                 inner_self.name = name
@@ -241,7 +242,8 @@ class EditItemActionTestCase(ActionTestCase):
                 self.result.append((inner_self.name, args, kw))
                 if inner_self.name == 'set':
                     return kw
-                return '17'
+                self.new_id+=1
+                return str(self.new_id)
 
         self.client.db.security.hasPermission = true
         self.client.classname = 'issue'
@@ -267,6 +269,24 @@ class EditItemActionTestCase(ActionTestCase):
         self.client.parsePropsFromForm = lambda: \
             ( {('msg','-1'):{'content':'t'},('issue','4711'):{}}
             , [('issue','4711','messages',[('msg','-1')])]
+            )
+        try :
+            self.action.handle()
+        except Redirect, msg:
+            pass
+        self.assertEqual(expect, self.result)
+
+    def testMessageMultiAttach(self):
+        expect = \
+            [ ('create',(),{'content':'t2'})
+            , ('create',(),{'content':'t'})
+            , ('set',('4711',), {'messages':['23','42','17','18']})
+            ]
+        self.client.db.classes.get = lambda a, b:['23','42']
+        self.client.parsePropsFromForm = lambda: \
+            ( {('msg','-1'):{'content':'t'},('msg','-2'):{'content':'t2'}
+              , ('issue','4711'):{}}
+            , [('issue','4711','messages',[('msg','-1'),('msg','-2')])]
             )
         try :
             self.action.handle()
@@ -320,20 +340,5 @@ class EditItemActionTestCase(ActionTestCase):
         except Redirect, msg:
             pass
         self.assertEqual(expect, self.result)
-
-def test_suite():
-    suite = unittest.TestSuite()
-    suite.addTest(unittest.makeSuite(RetireActionTestCase))
-    suite.addTest(unittest.makeSuite(StandardSearchActionTestCase))
-    suite.addTest(unittest.makeSuite(FakeFilterVarsTestCase))
-    suite.addTest(unittest.makeSuite(ShowActionTestCase))
-    suite.addTest(unittest.makeSuite(CollisionDetectionTestCase))
-    suite.addTest(unittest.makeSuite(LoginTestCase))
-    suite.addTest(unittest.makeSuite(EditItemActionTestCase))
-    return suite
-
-if __name__ == '__main__':
-    runner = unittest.TextTestRunner()
-    unittest.main(testRunner=runner)
 
 # vim: set et sts=4 sw=4 :

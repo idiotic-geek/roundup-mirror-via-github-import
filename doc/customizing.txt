@@ -162,6 +162,14 @@ Section **main**
  umask -- ``02``
   Defines the file creation mode mask.
 
+ csv_field_size -- ``131072``
+  Maximum size of a csv-field during import. Roundups export
+  format is a csv (comma separated values) variant. The csv
+  reader has a limit on the size of individual fields
+  starting with python 2.5. Set this to a higher value if you
+  get the error 'Error: field larger than field limit' during
+  import.
+
 Section **tracker**
  name -- ``Roundup issue tracker``
   A descriptive name for your roundup instance.
@@ -647,6 +655,7 @@ A Class is comprised of one or more properties of the following types:
   class.
 * Date properties store date-and-time stamps. Their values are Timestamp
   objects.
+* Integer properties store integer values. (Number can store real/float values.)
 * Number properties store numeric values.
 * Boolean properties store on/off, yes/no, true/false values.
 * A Link property refers to a single other item selected from a
@@ -654,6 +663,47 @@ A Class is comprised of one or more properties of the following types:
   integer, the id of the chosen item.
 * A Multilink property refers to possibly many items in a specified
   class. The value is a list of integers.
+
+Properties can have additional attributes to change the default
+behaviour:
+
+* String properties can have an ``indexme`` attribute that defines if the
+  property should be part of the index. The default is 'yes' but this
+  can be set to 'no' to prevent a property from being indexed.
+* Link and Multilink properties can have several attributes:
+  
+  - ``do_journal``: By default, every change of a link property is
+    recorded in the item being linked to (or being unlinked). A typical
+    use-case for setting ``do_journal='no'`` would be to turn off
+    journalling of nosy list, message author and message recipient link
+    and unlink events to prevent the journal from clogged with these
+    events.
+  - ``try_id_parsing`` is turned on by default. If entering a number
+    into a Link or Multilink field, roundup interprets this number as an
+    ID of the item to link to. Sometimes items can have numeric names
+    (like, e.g., product codes). For these roundup needs to match the
+    numeric name and should never match an ID. In this case you can set
+    ``try_id_parsing='no'``.
+  - The ``msg_header_property`` is used in the mail gateway when sending
+    out messages: By default roundup creates headers of the form::
+
+        X-Roundup-issue-prop: value
+
+    for all properties prop of issue that have a ``name`` property. This
+    definition allows to override the name of the property used for
+    generating headers. A common use-case is adding a mail-header with
+    the ``assigned_to`` property to allow user mail-filtering of
+    issue-emails for which they're responsible.  In that case setting::
+
+        msg_header_property="username"
+
+    for the assigned_to property will generated message headers of the
+    form::
+    
+        X-Roundup-issue-assigned_to: joe_user
+
+    for issues where joe_user is the username of the person responsible
+    for this issue.
 
 All Classes automatically have a number of properties by default:
 
@@ -765,8 +815,9 @@ A note about ordering
 When we sort items in the hyperdb, we use one of a number of methods,
 depending on the properties being sorted on:
 
-1. If it's a String, Number, Date or Interval property, we just sort the
-   scalar value of the property. Strings are sorted case-sensitively.
+1. If it's a String, Integer, Number, Date or Interval property, we
+   just sort the scalar value of the property. Strings are sorted
+   case-sensitively.
 2. If it's a Link property, we sort by either the linked item's "order"
    property (if it has one) or the linked item's "id".
 3. Mulitlinks sort similar to #2, but we start with the first Multilink
@@ -928,7 +979,13 @@ To use, simply add at the top of your auditor::
 
 And then when your rejection criteria have been detected, simply::
 
-   raise Reject
+   raise Reject('Description of error')
+
+Error messages raised with ``Reject`` automatically have any HTML content
+escaped before being displayed to the user. To display an error message to the
+user without performing any HTML escaping the ``RejectRaw`` should be used. All
+security implications should be carefully considering before using
+``RejectRaw``.
 
 
 Generating email from Roundup
@@ -1605,7 +1662,7 @@ None of the above (ie. just a simple form value)
     they are valid for the class).  Otherwise, the property
     is set to the form value.
 
-    For Date(), Interval(), Boolean(), and Number()
+    For Date(), Interval(), Boolean(), Integer() and Number()
     properties, the form value is converted to the
     appropriate
 

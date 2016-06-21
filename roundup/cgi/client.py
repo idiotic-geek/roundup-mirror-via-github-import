@@ -15,9 +15,11 @@ except ImportError:
 
 from roundup import roundupdb, date, hyperdb, password
 from roundup.cgi import templating, cgitb, TranslationService
-from roundup.cgi.actions import *
-from roundup.exceptions import *
-from roundup.cgi.exceptions import *
+from roundup.cgi import actions
+from roundup.exceptions import LoginError, Reject, RejectRaw, Unauthorised
+from roundup.cgi.exceptions import (
+    FormError, NotFound, NotModified, Redirect, SendFile, SendStaticFile,
+    DetectorError, SeriousError)
 from roundup.cgi.form_parser import FormParser
 from roundup.mailer import Mailer, MessageSendError, encode_quopri
 from roundup.cgi import accept_language
@@ -25,7 +27,6 @@ from roundup import xmlrpc
 
 from roundup.anypy.cookie_ import CookieError, BaseCookie, SimpleCookie, \
     get_cookie_date
-from roundup.anypy.io_ import StringIO
 from roundup.anypy import http_
 from roundup.anypy import urllib_
 
@@ -571,6 +572,15 @@ class Client:
             # OpenSSL.SSL.SysCallError is similar to IOError above
             # may happen during write_html and serve_file, too.
             pass
+        except DetectorError as e:
+            if not self.instance.config.WEB_DEBUG:
+                # run when we are not in debug mode, so errors
+                # go to admin too.
+                self.send_error_to_admin(e.subject, e.html, e.txt)
+                self.write_html(e.html)
+            else:
+                # in debug mode, only write error to screen.
+                self.write_html(e.html)
         except:
             # Something has gone badly wrong.  Therefore, we should
             # make sure that the response code indicates failure.
@@ -1223,18 +1233,18 @@ class Client:
 
     # these are the actions that are available
     actions = (
-        ('edit',        EditItemAction),
-        ('editcsv',     EditCSVAction),
-        ('new',         NewItemAction),
-        ('register',    RegisterAction),
-        ('confrego',    ConfRegoAction),
-        ('passrst',     PassResetAction),
-        ('login',       LoginAction),
-        ('logout',      LogoutAction),
-        ('search',      SearchAction),
-        ('retire',      RetireAction),
-        ('show',        ShowAction),
-        ('export_csv',  ExportCSVAction),
+        ('edit',        actions.EditItemAction),
+        ('editcsv',     actions.EditCSVAction),
+        ('new',         actions.NewItemAction),
+        ('register',    actions.RegisterAction),
+        ('confrego',    actions.ConfRegoAction),
+        ('passrst',     actions.PassResetAction),
+        ('login',       actions.LoginAction),
+        ('logout',      actions.LogoutAction),
+        ('search',      actions.SearchAction),
+        ('retire',      actions.RetireAction),
+        ('show',        actions.ShowAction),
+        ('export_csv',  actions.ExportCSVAction),
     )
     def handle_action(self):
         """ Determine whether there should be an Action called.
@@ -1274,9 +1284,9 @@ class Client:
                 return getattr(self, action_klass)()
             else:
                 return action_klass(self).execute()
-
         except (ValueError, Reject), err:
-            self.add_error_message(str(err))
+            escape = not isinstance(err, RejectRaw)
+            self.add_error_message(str(err), escape=escape)
 
     def get_action_class(self, action_name):
         if (hasattr(self.instance, 'cgi_actions') and

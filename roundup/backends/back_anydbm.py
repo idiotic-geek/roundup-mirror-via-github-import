@@ -24,10 +24,9 @@ __docformat__ = 'restructuredtext'
 
 import os, marshal, re, weakref, string, copy, time, shutil, logging
 
-from roundup.anypy.dbm_ import anydbm, whichdb, key_in
+from roundup.anypy.dbm_ import anydbm, whichdb
 
 from roundup import hyperdb, date, password, roundupdb, security, support
-from roundup.support import reversed
 from roundup.backends import locking
 from roundup.i18n import _
 
@@ -171,6 +170,10 @@ class Database(FileStorage, hyperdb.Database, roundupdb.Database):
         self.indexer = Indexer(self)
         self.security = security.Security(self)
         os.umask(config.UMASK)
+
+        # make sure the database directory exists
+        if not os.path.isdir(self.config.DATABASE):
+            os.makedirs(self.config.DATABASE)
 
         # lock it
         lockfilenm = os.path.join(self.dir, 'lock')
@@ -333,7 +336,7 @@ class Database(FileStorage, hyperdb.Database, roundupdb.Database):
         """
         # open the ids DB - create if if doesn't exist
         db = self.opendb('_ids', 'c')
-        if key_in(db, classname):
+        if classname in db:
             newid = db[classname] = str(int(db[classname]) + 1)
         else:
             # the count() bit is transitional - older dbs won't start at 1
@@ -410,7 +413,7 @@ class Database(FileStorage, hyperdb.Database, roundupdb.Database):
         # get from the database and save in the cache
         if db is None:
             db = self.getclassdb(classname)
-        if not key_in(db, nodeid):
+        if nodeid not in db:
             raise IndexError("no such %s %s"%(classname, nodeid))
 
         # check the uncommitted, destroyed nodes
@@ -522,7 +525,7 @@ class Database(FileStorage, hyperdb.Database, roundupdb.Database):
         # not in the cache - check the database
         if db is None:
             db = self.getclassdb(classname)
-        return key_in(db, nodeid)
+        return nodeid in db
 
     def countnodes(self, classname, db=None):
         count = 0
@@ -784,7 +787,7 @@ class Database(FileStorage, hyperdb.Database, roundupdb.Database):
         db = self.getCachedJournalDB(classname)
 
         # now insert the journal entry
-        if key_in(db, nodeid):
+        if nodeid in db:
             # append to existing
             s = db[nodeid]
             l = marshal.loads(s)
@@ -809,12 +812,12 @@ class Database(FileStorage, hyperdb.Database, roundupdb.Database):
     def doDestroyNode(self, classname, nodeid):
         # delete from the class database
         db = self.getCachedClassDB(classname)
-        if key_in(db, nodeid):
+        if nodeid in db:
             del db[nodeid]
 
         # delete from the database
         db = self.getCachedJournalDB(classname)
-        if key_in(db, nodeid):
+        if nodeid in db:
             del db[nodeid]
 
     def rollback(self):
@@ -997,6 +1000,12 @@ class Class(hyperdb.Class):
                     float(value)
                 except ValueError:
                     raise TypeError('new property "%s" not numeric'%key)
+
+            elif value is not None and isinstance(prop, hyperdb.Integer):
+                try:
+                    int(value)
+                except ValueError:
+                    raise TypeError('new property "%s" not an integer'%key)
 
             elif value is not None and isinstance(prop, hyperdb.Boolean):
                 try:
@@ -1339,6 +1348,13 @@ class Class(hyperdb.Class):
                     raise TypeError('new property "%s" not '
                         'numeric'%propname)
 
+            elif value is not None and isinstance(prop, hyperdb.Integer):
+                try:
+                    int(value)
+                except ValueError:
+                    raise TypeError('new property "%s" not '
+                        'numeric'%propname)
+
             elif value is not None and isinstance(prop, hyperdb.Boolean):
                 try:
                     int(value)
@@ -1625,7 +1641,7 @@ class Class(hyperdb.Class):
             # remove the uncommitted, destroyed nodes
             if self.classname in self.db.destroyednodes:
                 for nodeid in self.db.destroyednodes[self.classname]:
-                    if key_in(db, nodeid):
+                    if nodeid in db:
                         res.remove(nodeid)
 
             # check retired flag
@@ -1744,6 +1760,14 @@ class Class(hyperdb.Class):
                     except AttributeError :
                         v = [v]
                 l.append((OTHER, k, [float(val) for val in v]))
+
+            elif isinstance(propclass, hyperdb.Integer):
+                if type(v) != type([]):
+                    try :
+                        v = v.split(',')
+                    except AttributeError :
+                        v = [v]
+                l.append((OTHER, k, [int(val) for val in v]))
 
         filterspec = l
 

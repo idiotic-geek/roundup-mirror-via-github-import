@@ -20,12 +20,18 @@ from mocknull import MockNull
 
 import db_test_base
 
-NEEDS_INSTANCE = 1
-
 class FileUpload:
     def __init__(self, content, filename):
         self.content = content
         self.filename = filename
+
+class FileList:
+    def __init__(self, name, *files):
+        self.name  = name
+        self.files = files
+    def items (self):
+        for f in self.files:
+            yield (self.name, f)
 
 def makeForm(args):
     form = cgi.FieldStorage()
@@ -101,9 +107,10 @@ class FormTestCase(unittest.TestCase):
 
         test = self.instance.backend.Class(self.db, "test",
             string=hyperdb.String(), number=hyperdb.Number(),
-            boolean=hyperdb.Boolean(), link=hyperdb.Link('test'),
-            multilink=hyperdb.Multilink('test'), date=hyperdb.Date(),
-            messages=hyperdb.Multilink('msg'), interval=hyperdb.Interval())
+            intval=hyperdb.Integer(), boolean=hyperdb.Boolean(),
+            link=hyperdb.Link('test'), multilink=hyperdb.Multilink('test'),
+            date=hyperdb.Date(), messages=hyperdb.Multilink('msg'),
+            interval=hyperdb.Interval())
 
         # compile the labels re
         classes = '|'.join(self.db.classes.keys())
@@ -264,6 +271,33 @@ class FormTestCase(unittest.TestCase):
         self.assertEqual(self.parseForm({'content': file}, 'file'),
             ({('file', None): {'content': 'foo', 'name': 'foo.txt',
             'type': 'text/plain'}}, []))
+
+    def testSingleFileUpload(self):
+        file = FileUpload('foo', 'foo.txt')
+        self.assertEqual(self.parseForm({'@file': file}, 'issue'),
+            ({('file', '-1'): {'content': 'foo', 'name': 'foo.txt',
+            'type': 'text/plain'},
+              ('issue', None): {}},
+             [('issue', None, 'files', [('file', '-1')])]))
+
+    def testMultipleFileUpload(self):
+        f1 = FileUpload('foo', 'foo.txt')
+        f2 = FileUpload('bar', 'bar.txt')
+        f3 = FileUpload('baz', 'baz.txt')
+        files = FileList('@file', f1, f2, f3)
+
+        self.assertEqual(self.parseForm(files, 'issue'),
+            ({('file', '-1'): {'content': 'foo', 'name': 'foo.txt',
+               'type': 'text/plain'},
+              ('file', '-2'): {'content': 'bar', 'name': 'bar.txt',
+               'type': 'text/plain'},
+              ('file', '-3'): {'content': 'baz', 'name': 'baz.txt',
+               'type': 'text/plain'},
+              ('issue', None): {}},
+             [ ('issue', None, 'files', [('file', '-1')])
+             , ('issue', None, 'files', [('file', '-2')])
+             , ('issue', None, 'files', [('file', '-3')])
+             ]))
 
     def testEditFileClassAttributes(self):
         self.assertEqual(self.parseForm({'name': 'foo.txt',
@@ -588,6 +622,62 @@ class FormTestCase(unittest.TestCase):
             self.parseForm({'number': '0', ':required': 'number'})
         except FormError:
             self.fail('number "no" raised "required missing"')
+
+    #
+    # Integer
+    #
+    def testEmptyInteger(self):
+        self.assertEqual(self.parseForm({'intval': ''}),
+            ({('test', None): {}}, []))
+        self.assertEqual(self.parseForm({'intval': ' '}),
+            ({('test', None): {}}, []))
+        self.assertRaises(FormError, self.parseForm, {'intval': ['', '']})
+
+    def testInvalidInteger(self):
+        self.assertRaises(FormError, self.parseForm, {'intval': 'hi, mum!'})
+
+    def testSetInteger(self):
+        self.assertEqual(self.parseForm({'intval': '1'}),
+            ({('test', None): {'intval': 1}}, []))
+        self.assertEqual(self.parseForm({'intval': '0'}),
+            ({('test', None): {'intval': 0}}, []))
+        self.assertEqual(self.parseForm({'intval': '\n0\n'}),
+            ({('test', None): {'intval': 0}}, []))
+
+    def testSetIntegerReplaceOne(self):
+        nodeid = self.db.test.create(intval=1)
+        self.assertEqual(self.parseForm({'intval': '1'}, 'test', nodeid),
+            ({('test', nodeid): {}}, []))
+        self.assertEqual(self.parseForm({'intval': '0'}, 'test', nodeid),
+            ({('test', nodeid): {'intval': 0}}, []))
+
+    def testSetIntegerReplaceZero(self):
+        nodeid = self.db.test.create(intval=0)
+        self.assertEqual(self.parseForm({'intval': '0'}, 'test', nodeid),
+            ({('test', nodeid): {}}, []))
+
+    def testSetIntegerReplaceNone(self):
+        nodeid = self.db.test.create()
+        self.assertEqual(self.parseForm({'intval': '0'}, 'test', nodeid),
+            ({('test', nodeid): {'intval': 0}}, []))
+        self.assertEqual(self.parseForm({'intval': '1'}, 'test', nodeid),
+            ({('test', nodeid): {'intval': 1}}, []))
+
+    def testEmptyIntegerSet(self):
+        nodeid = self.db.test.create(intval=0)
+        self.assertEqual(self.parseForm({'intval': ''}, 'test', nodeid),
+            ({('test', nodeid): {'intval': None}}, []))
+        nodeid = self.db.test.create(intval=1)
+        self.assertEqual(self.parseForm({'intval': ' '}, 'test', nodeid),
+            ({('test', nodeid): {'intval': None}}, []))
+
+    def testRequiredInteger(self):
+        self.assertRaises(FormError, self.parseForm, {'intval': '',
+            ':required': 'intval'})
+        try:
+            self.parseForm({'intval': '0', ':required': 'intval'})
+        except FormError:
+            self.fail('intval "no" raised "required missing"')
 
     #
     # Date
@@ -978,19 +1068,5 @@ class FormTestCase(unittest.TestCase):
         # but not acting like the column name is not found
         self.assertRaises(exceptions.SeriousError,
             actions.ExportCSVAction(cl).handle)
-
-
-def test_suite():
-    suite = unittest.TestSuite()
-
-def test_suite():
-    suite = unittest.TestSuite()
-    suite.addTest(unittest.makeSuite(FormTestCase))
-    suite.addTest(unittest.makeSuite(MessageTestCase))
-    return suite
-
-if __name__ == '__main__':
-    runner = unittest.TextTestRunner()
-    unittest.main(testRunner=runner)
 
 # vim: set filetype=python sts=4 sw=4 et si :

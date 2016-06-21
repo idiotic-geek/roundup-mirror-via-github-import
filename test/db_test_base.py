@@ -20,8 +20,9 @@ import logging
 import gpgmelib
 from email.parser import FeedParser
 
+import pytest
 from roundup.hyperdb import String, Password, Link, Multilink, Date, \
-    Interval, DatabaseError, Boolean, Number, Node
+    Interval, DatabaseError, Boolean, Number, Node, Integer
 from roundup.mailer import Mailer
 from roundup import date, password, init, instance, configuration, \
     roundupdb, i18n
@@ -64,12 +65,11 @@ def setupTracker(dirname, backend="anydbm"):
                                        'roundup',
                                        'templates',
                                        'classic'))
-    init.write_select_db(dirname, backend)
+    config.RDBMS_BACKEND = backend
     config.save(os.path.join(dirname, 'config.ini'))
     tracker = instance.open(dirname)
     if tracker.exists():
         tracker.nuke()
-        init.write_select_db(dirname, backend)
     tracker.init(password.Password('sekrit'))
     return tracker
 
@@ -82,7 +82,7 @@ def setupSchema(db, create, module):
     priority.setkey("name")
     user = module.Class(db, "user", username=String(), password=Password(),
         assignable=Boolean(), age=Number(), roles=String(), address=String(),
-        supervisor=Link('user'),realname=String())
+        rating=Integer(), supervisor=Link('user'),realname=String())
     user.setkey("username")
     file = module.FileClass(db, "file", name=String(), type=String(),
         comment=String(indexme="yes"), fooz=Password())
@@ -121,7 +121,8 @@ def setupSchema(db, create, module):
     # nosy tests require this
     db.security.addPermissionToRole('User', 'View', 'msg')
 
-class MyTestCase(unittest.TestCase):
+
+class MyTestCase(object):
     def tearDown(self):
         if hasattr(self, 'db'):
             self.db.close()
@@ -532,6 +533,25 @@ class DBTest(commonDBTest):
         nid = self.db.user.create(username='foo', age=1)
         self.db.user.set(nid, age=None)
         self.assertEqual(self.db.user.get(nid, "age"), None)
+
+    # Integer
+    def testIntegerChange(self):
+        nid = self.db.user.create(username='foo', rating=100)
+        self.assertEqual(100, self.db.user.get(nid, 'rating'))
+        self.db.user.set(nid, rating=300)
+        self.assertNotEqual(self.db.user.get(nid, 'rating'), 100)
+        self.db.user.set(nid, rating=-1)
+        self.assertEqual(self.db.user.get(nid, 'rating'), -1)
+        self.db.user.set(nid, rating=0)
+        self.assertEqual(self.db.user.get(nid, 'rating'), 0)
+
+        nid = self.db.user.create(username='bar', rating=0)
+        self.assertEqual(self.db.user.get(nid, 'rating'), 0)
+
+    def testIntegerUnset(self):
+        nid = self.db.user.create(username='foo', rating=1)
+        self.db.user.set(nid, rating=None)
+        self.assertEqual(self.db.user.get(nid, "rating"), None)
 
     # Password
     def testPasswordChange(self):
@@ -2018,14 +2038,12 @@ class DBTest(commonDBTest):
             roundupdb._ = old_translate_
             Mailer.smtp_send = backup
 
+    @pytest.mark.skipif(gpgmelib.pyme is None, reason='Skipping PGPNosy test')
     def testPGPNosyMail(self) :
         """Creates one issue with two attachments, one smaller and one larger
            than the set max_attachment_size. Recipients are one with and
            one without encryption enabled via a gpg group.
         """
-        if gpgmelib.pyme is None:
-            print "Skipping PGPNosy test"
-            return
         old_translate_ = roundupdb._
         roundupdb._ = i18n.get_translation(language='C').gettext
         db = self.db
@@ -2463,7 +2481,7 @@ class FilterCacheTest(commonDBTest):
         ae (result, ['4', '5', '6', '7', '8', '1', '2', '3'])
 
 
-class ClassicInitBase(unittest.TestCase):
+class ClassicInitBase(object):
     count = 0
     db = None
 

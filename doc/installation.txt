@@ -79,6 +79,11 @@ pyme
   configured, you can require email to be cryptographically signed
   before roundup will allow it to make modifications to issues.
 
+jinja2
+  To use the jinja2 template (may still be experimental, check out
+  its TEMPLATE-INFO.txt file) you need
+  to have the jinja2_ template engine installed.
+
 Windows Service
   You can run Roundup as a Windows service if pywin32_ is installed.
 
@@ -88,6 +93,7 @@ Windows Service
 .. _pyopenssl: http://pyopenssl.sourceforge.net
 .. _pyme: http://pyme.sourceforge.net
 .. _pywin32: http://pypi.python.org/pypi/pywin32
+.. _jinja2: http://jinja.pocoo.org/
 
 
 Getting Roundup
@@ -135,7 +141,6 @@ installation:
 4. and optionally `configure an email interface`_
 5. `UNIX environment steps`_ to take if you're installing on a shared
    UNIX machine and want to restrict local access to roundup
-6. `additional language codecs`_
 
 For information about how Roundup installs, see the `administration
 guide`_.
@@ -827,14 +832,6 @@ you will need to ensure that the db directory has a context that
 permits the web server to modify and create files. If you're using the
 mysql or postgresql backend you may also need to update your policy to
 allow the web server to access the database socket.
-
-
-Additional Language Codecs
---------------------------
-
-If you intend to send messages to Roundup that use Chinese, Japanese or
-Korean encodings the you'll need to obtain CJKCodecs from
-http://cjkpython.berlios.de/
 
 
 Public Tracker Considerations
