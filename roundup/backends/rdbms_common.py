@@ -57,9 +57,8 @@ import sys, os, time, re, errno, weakref, copy, logging, datetime
 # roundup modules
 from roundup import hyperdb, date, password, roundupdb, security, support
 from roundup.hyperdb import String, Password, Date, Interval, Link, \
-    Multilink, DatabaseError, Boolean, Number, Node
+    Multilink, DatabaseError, Boolean, Number, Integer, Node
 from roundup.backends import locking
-from roundup.support import reversed
 from roundup.i18n import _
 
 
@@ -185,6 +184,10 @@ class Database(FileStorage, hyperdb.Database, roundupdb.Database):
         self.clearCache()
         self.stats = {'cache_hits': 0, 'cache_misses': 0, 'get_items': 0,
             'filtering': 0}
+
+        # make sure the database directory exists
+        if not os.path.isdir(self.config.DATABASE):
+            os.makedirs(self.config.DATABASE)
 
         # database lock
         self.lockfile = None
@@ -461,6 +464,7 @@ class Database(FileStorage, hyperdb.Database, roundupdb.Database):
         hyperdb.Password  : 'VARCHAR(255)',
         hyperdb.Boolean   : 'BOOLEAN',
         hyperdb.Number    : 'REAL',
+        hyperdb.Integer   : 'INTEGER',
     }
 
     def hyperdb_to_sql_datatype(self, propclass):
@@ -868,6 +872,7 @@ class Database(FileStorage, hyperdb.Database, roundupdb.Database):
         hyperdb.Password  : str,
         hyperdb.Boolean   : lambda x: x and 'TRUE' or 'FALSE',
         hyperdb.Number    : lambda x: x,
+        hyperdb.Integer   : lambda x: x,
         hyperdb.Multilink : lambda x: x,    # used in journal marshalling
     }
 
@@ -1081,6 +1086,7 @@ class Database(FileStorage, hyperdb.Database, roundupdb.Database):
         hyperdb.Password  : lambda x: password.Password(encrypted=x),
         hyperdb.Boolean   : _bool_cvt,
         hyperdb.Number    : _num_cvt,
+        hyperdb.Integer   : int,
         hyperdb.Multilink : lambda x: x,    # used in journal marshalling
     }
 
@@ -1222,6 +1228,15 @@ class Database(FileStorage, hyperdb.Database, roundupdb.Database):
     def hasnode(self, classname, nodeid):
         """ Determine if the database has a given node.
         """
+        # nodeid (aka link) is sql type INTEGER.  max positive value
+        # for INTEGER is 2^31-1 for Postgres and MySQL. The max
+        # positive value for SqLite is 2^63 -1, so arguably this check
+        # needs to adapt for the type of the RDBMS. For right now,
+        # choose lowest common denominator.
+        if int(nodeid) >= 2**31:
+            # value out of range return false
+            return 0
+
         # If this node is in the cache, then we do not need to go to
         # the database.  (We don't consider this an LRU hit, though.)
         if (classname, nodeid) in self.cache:
@@ -1629,6 +1644,12 @@ class Class(hyperdb.Class):
                 except ValueError:
                     raise TypeError('new property "%s" not numeric'%key)
 
+            elif value is not None and isinstance(prop, Integer):
+                try:
+                    int(value)
+                except ValueError:
+                    raise TypeError('new property "%s" not integer'%key)
+
             elif value is not None and isinstance(prop, Boolean):
                 try:
                     int(value)
@@ -1927,6 +1948,12 @@ class Class(hyperdb.Class):
                     float(value)
                 except ValueError:
                     raise TypeError('new property "%s" not numeric'%propname)
+
+            elif value is not None and isinstance(prop, Integer):
+                try:
+                    int(value)
+                except ValueError:
+                    raise TypeError('new property "%s" not integer'%propname)
 
             elif value is not None and isinstance(prop, Boolean):
                 try:

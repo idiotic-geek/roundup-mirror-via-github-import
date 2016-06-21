@@ -21,12 +21,14 @@
 __docformat__ = 'restructuredtext'
 
 # standard python modules
-import os, re, shutil, weakref
+import os, re, shutil, sys, weakref
+import traceback
 
 # roundup modules
 import date, password
-from support import ensureParentsExist, PrioList, sorted, reversed
+from support import ensureParentsExist, PrioList
 from roundup.i18n import _
+from roundup.cgi.exceptions import DetectorError
 
 #
 # Types
@@ -71,11 +73,15 @@ class String(_Type):
 
 class Password(_Type):
     """An object designating a Password property."""
+    def __init__(self, scheme=None, required=False, default_value = None):
+        super(Password, self).__init__(required, default_value)
+        self.scheme = scheme
+
     def from_raw(self, value, **kw):
         if not value:
             return None
         try:
-            return password.Password(encrypted=value, strict=True)
+            return password.Password(encrypted=value, scheme=self.scheme, strict=True)
         except password.PasswordValueError, message:
             raise HyperdbValueError, \
                     _('property %s: %s')%(kw['propname'], message)
@@ -128,18 +134,31 @@ class _Pointer(_Type):
     """An object designating a Pointer property that links or multilinks
     to a node in a specified class."""
     def __init__(self, classname, do_journal='yes', try_id_parsing='yes',
-                 required=False, default_value=None):
+                 required=False, default_value=None,
+                 msg_header_property = None):
         """ Default is to journal link and unlink events.
             When try_id_parsing is false, we don't allow IDs in input
             fields (the key of the Link or Multilink property must be
             given instead). This is useful when the name of a property
             can be numeric. It will only work if the linked item has a
             key property and is a questionable feature for multilinks.
+            The msg_header_property is used in the mail gateway when
+            sending out messages: By default roundup creates headers of
+            the form: 'X-Roundup-issue-prop: value' for all properties
+            prop of issue that have a 'name' property. This definition
+            allows to override the 'name' property. A common use-case is
+            adding a mail-header with the assigned_to property to allow
+            user mail-filtering of issue-emails for which they're
+            responsible. In that case setting
+            'msg_header_property="username"' for the assigned_to
+            property will generated message headers of the form:
+            'X-Roundup-issue-assigned_to: joe_user'.
         """
         super(_Pointer, self).__init__(required, default_value)
         self.classname = classname
         self.do_journal = do_journal == 'yes'
-        self.try_id_parsing = try_id_parsing == 'yes'
+        self.try_id_parsing      = try_id_parsing == 'yes'
+        self.msg_header_property = msg_header_property
     def __repr__(self):
         """more useful for dumps. But beware: This is also used in schema
         storage in SQL backends!
@@ -215,10 +234,10 @@ class Multilink(_Pointer):
             remove = 0
             if item.startswith('-'):
                 remove = 1
-                item = item[1:]
+                item = item[1:].strip()
                 do_set = 0
             elif item.startswith('+'):
-                item = item[1:]
+                item = item[1:].strip()
                 do_set = 0
 
             # look up the value
@@ -277,6 +296,17 @@ class Number(_Type):
             value = float(value)
         except ValueError:
             raise HyperdbValueError, _('property %s: %r is not a number')%(
+                kw['propname'], value)
+        return value
+
+class Integer(_Type):
+    """An object designating an integer property"""
+    def from_raw(self, value, **kw):
+        value = value.strip()
+        try:
+            value = int(value)
+        except ValueError:
+            raise HyperdbValueError, _('property %s: %r is not an integer')%(
                 kw['propname'], value)
         return value
 #
@@ -1262,7 +1292,16 @@ class Class:
     def fireAuditors(self, event, nodeid, newvalues):
         """Fire all registered auditors"""
         for prio, name, audit in self.auditors[event]:
-            audit(self.db, self, nodeid, newvalues)
+            try:
+                audit(self.db, self, nodeid, newvalues)
+            except (EnvironmentError, ArithmeticError) as e:
+                tb = traceback.format_exc()
+                html = ("<h1>Traceback</h1>" + str(tb).replace('\n', '<br>').
+                        replace(' ', '&nbsp;'))
+                txt = 'Caught exception %s: %s\n%s' % (str(type(e)), e, tb)
+                exc_info = sys.exc_info()
+                subject = "Error: %s" % exc_info[1]
+                raise DetectorError(subject, html, txt)
 
     def react(self, event, detector, priority = 100):
         """Register a reactor detector"""
@@ -1271,7 +1310,16 @@ class Class:
     def fireReactors(self, event, nodeid, oldvalues):
         """Fire all registered reactors"""
         for prio, name, react in self.reactors[event]:
-            react(self.db, self, nodeid, oldvalues)
+            try:
+                react(self.db, self, nodeid, oldvalues)
+            except (EnvironmentError, ArithmeticError) as e:
+                tb = traceback.format_exc()
+                html = ("<h1>Traceback</h1>" + str(tb).replace('\n', '<br>').
+                        replace(' ', '&nbsp;'))
+                txt = 'Caught exception %s: %s\n%s' % (str(type(e)), e, tb)
+                exc_info = sys.exc_info()
+                subject = "Error: %s" % exc_info[1]
+                raise DetectorError(subject, html, txt)
 
     #
     # import / export support

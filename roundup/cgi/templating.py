@@ -21,7 +21,8 @@ __docformat__ = 'restructuredtext'
 
 
 import cgi, urllib, re, os.path, mimetypes, csv
-import calendar, textwrap
+import calendar
+import textwrap
 
 from roundup import hyperdb, date, support
 from roundup import i18n
@@ -362,7 +363,11 @@ def lookupKeys(linkcl, key, ids, num_re=num_re):
     l = []
     for entry in ids:
         if num_re.match(entry):
-            label = linkcl.get(entry, key)
+            try:
+		label = linkcl.get(entry, key)
+	    except IndexError:
+		# fall back to id if illegal (avoid template crash)
+                label = entry
             # fall back to designator if label is None
             if label is None: label = '%s%s'%(linkcl.classname, entry)
             l.append(label)
@@ -1196,7 +1201,7 @@ def HTMLItem(client, classname, nodeid, anonymous=0):
         return _HTMLItem(client, classname, nodeid, anonymous)
 
 class HTMLProperty(HTMLInputMixin, HTMLPermissions):
-    """ String, Number, Date, Interval HTMLProperty
+    """ String, Integer, Number, Date, Interval HTMLProperty
 
         Has useful attributes:
 
@@ -1426,7 +1431,7 @@ class StringHTMLProperty(HTMLProperty):
 
         if self._value is None:
             return ''
-        s = support.wrap(str(self._value), width=80)
+        s = '\n'.join(textwrap.wrap(str(self._value), 80))
         if escape:
             s = cgi.escape(s)
         if hyperlink:
@@ -1599,6 +1604,38 @@ class NumberHTMLProperty(HTMLProperty):
         """ Return a float of me
         """
         return float(self._value)
+
+class IntegerHTMLProperty(HTMLProperty):
+    def plain(self, escape=0):
+        """ Render a "plain" representation of the property
+        """
+        if not self.is_view_ok():
+            return self._('[hidden]')
+
+        if self._value is None:
+            return ''
+
+        return str(self._value)
+
+    def field(self, size=30, **kwargs):
+        """ Render a form edit field for the property.
+
+            If not editable, just display the value via plain().
+        """
+        if not self.is_edit_ok():
+            return self.plain(escape=1)
+
+        value = self._value
+        if value is None:
+            value = ''
+
+        return self.input(name=self._formname, value=value, size=size,
+                          **kwargs)
+
+    def __int__(self):
+        """ Return an int of me
+        """
+        return int(self._value)
 
 
 class BooleanHTMLProperty(HTMLProperty):
@@ -2068,11 +2105,11 @@ class LinkHTMLProperty(HTMLProperty):
                 if isinstance(prop, hyperdb.Link):
                     cl = self._db.getclass(prop.classname)
                     labelprop = cl.labelprop()
-                    fn = lambda optionid, \
+                    fn = lambda optionid, cl=cl, linkcl=linkcl, \
                                 propname=propname, labelprop=labelprop: \
                             cl.get(linkcl.get(optionid, propname), labelprop)
                 else:
-                    fn = lambda optionid, propname=propname: \
+                    fn = lambda optionid, linkcl=linkcl, propname=propname: \
                             linkcl.get(optionid, propname)
                 additional_fns.append(fn)
 
@@ -2301,11 +2338,11 @@ class MultilinkHTMLProperty(HTMLProperty):
                 if isinstance(prop, hyperdb.Link):
                     cl = self._db.getclass(prop.classname)
                     labelprop = cl.labelprop()
-                    fn = lambda optionid, \
+                    fn = lambda optionid, cl=cl, linkcl=linkcl, \
                                 propname=propname, labelprop=labelprop: \
                             cl.get(linkcl.get(optionid, propname), labelprop)
                 else:
-                    fn = lambda optionid, propname=propname: \
+                    fn = lambda optionid, linkcl=linkcl, propname=propname: \
                             linkcl.get(optionid, propname)
                 additional_fns.append(fn)
 
@@ -2347,6 +2384,7 @@ class MultilinkHTMLProperty(HTMLProperty):
 propclasses = [
     (hyperdb.String, StringHTMLProperty),
     (hyperdb.Number, NumberHTMLProperty),
+    (hyperdb.Integer, IntegerHTMLProperty),
     (hyperdb.Boolean, BooleanHTMLProperty),
     (hyperdb.Date, DateHTMLProperty),
     (hyperdb.Interval, IntervalHTMLProperty),
@@ -2643,8 +2681,15 @@ env: %(env)s
 """%d
 
     def indexargs_form(self, columns=1, sort=1, group=1, filter=1,
-            filterspec=1, search_text=1):
-        """ return the current index args as form elements """
+            filterspec=1, search_text=1, exclude=[]):
+        """ return the current index args as form elements
+
+            This routine generates an html form with hidden elements.
+            If you want to have visible form elements in your tal/jinja
+            generated templates use the exclude aray to list the names for
+            these elements. This wll prevent the function from creating
+            these elements in its output.
+        """
         l = []
         sc = self.special_char
         def add(k, v):
@@ -2672,6 +2717,8 @@ env: %(env)s
         if self.classname and filterspec:
             cls = self.client.db.getclass(self.classname)
             for k,v in self.filterspec.items():
+                if k in exclude:
+                    continue
                 if type(v) == type([]):
                     if isinstance(cls.get_transitive_prop(k), hyperdb.String):
                         add(k, ' '.join(v))
@@ -2690,7 +2737,8 @@ env: %(env)s
         """
         q = urllib.quote
         sc = self.special_char
-        l = ['%s=%s'%(k,v) for k,v in args.items()]
+        l = ['%s=%s'%(k,isinstance(v, basestring) and q(v) or v)
+                for k,v in args.items()]
 
         # pull out the special values (prefixed by @ or :)
         specials = {}
@@ -2758,6 +2806,7 @@ function submit_once() {
 
 function help_window(helpurl, width, height) {
     HelpWin = window.open('%s' + helpurl, 'RoundupHelpWindow', 'scrollbars=yes,resizable=yes,toolbar=no,height='+height+',width='+width);
+    HelpWin.focus ()
 }
 </script>
 """%self.base
@@ -2876,7 +2925,7 @@ class Batch(ZTUtils.Batch):
     def previous(self):
         if self.start == 1:
             return None
-        return Batch(self.client, self._sequence, self._size,
+        return Batch(self.client, self._sequence, self.size,
             self.first - self._size + self.overlap, 0, self.orphan,
             self.overlap)
 
@@ -2885,7 +2934,7 @@ class Batch(ZTUtils.Batch):
             self._sequence[self.end]
         except IndexError:
             return None
-        return Batch(self.client, self._sequence, self._size,
+        return Batch(self.client, self._sequence, self.size,
             self.end - self.overlap, 0, self.orphan, self.overlap)
 
 class TemplatingUtils:

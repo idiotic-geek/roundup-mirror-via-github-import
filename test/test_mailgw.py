@@ -15,10 +15,15 @@ import email
 import gpgmelib
 import unittest, tempfile, os, shutil, errno, imp, sys, difflib, time
 
+import pytest
+
+# FIX: workaround for a bug in pytest.mark.skipif():
+#   https://github.com/pytest-dev/pytest/issues/568
 try:
     import pyme, pyme.core
+    skip_pgp = lambda func, *args, **kwargs: func
 except ImportError:
-    pyme = None
+    skip_pgp = pytest.skip("Skipping PGP tests: 'pyme' not installed")
 
 
 from cStringIO import StringIO
@@ -31,7 +36,6 @@ from roundup import mailgw, i18n, roundupdb
 from roundup.mailgw import MailGW, Unauthorized, uidFromAddress, \
     parseContent, IgnoreLoop, IgnoreBulk, MailUsageError, MailUsageHelp
 from roundup import init, instance, password, __version__
-from roundup.anypy.sets_ import set
 
 #import db_test_base
 import memorydb
@@ -142,7 +146,8 @@ class DiffHelper:
 
 from roundup.hyperdb import String
 
-class MailgwTestAbstractBase(unittest.TestCase, DiffHelper):
+
+class MailgwTestAbstractBase(DiffHelper):
     count = 0
     schema = 'classic'
     def setUp(self):
@@ -234,7 +239,7 @@ Subject: [issue] Testing...
         self.assertEqual(self.db.issue.get(nodeid, 'tx_Source'), 'email')
 
 
-class MailgwTestCase(MailgwTestAbstractBase):
+class MailgwTestCase(MailgwTestAbstractBase, unittest.TestCase):
 
     def testMessageWithFromInIt(self):
         nodeid = self._handle_mail('''Content-Type: text/plain;
@@ -1401,6 +1406,57 @@ Roundup issue tracker <issue_tracker@your.tracker.email.domain.example>
 _______________________________________________________________________
 """)
 
+
+    def testNosyMessageSettingSubject(self):
+        self.doNewIssue()
+        oldvalues = self.db.getnode('issue', '1').copy()
+        oldvalues['assignedto'] = None
+        # reconstruct old behaviour: This would reuse the
+        # database-handle from the doNewIssue above which has committed
+        # as user "Chef". So we close and reopen the db as that user.
+        #self.db.close() actually don't close 'cos this empties memorydb
+        self.db = self.instance.open('Chef')
+        self.db.issue.set('1', assignedto=self.chef_id)
+        self.db.commit()
+        self.db.issue.nosymessage('1', None, oldvalues, subject="test")
+
+        new_mail = ""
+        for line in self._get_mail().split("\n"):
+            if "Message-Id: " in line:
+                continue
+            if "Date: " in line:
+                continue
+            new_mail += line+"\n"
+
+        self.compareMessages(new_mail, """
+FROM: roundup-admin@your.tracker.email.domain.example
+TO: chef@bork.bork.bork, richard@test.test
+Content-Type: text/plain; charset="utf-8"
+Subject: test
+To: chef@bork.bork.bork, richard@test.test
+From: "Bork, Chef" <issue_tracker@your.tracker.email.domain.example>
+X-Roundup-Name: Roundup issue tracker
+X-Roundup-Loop: hello
+X-Roundup-Issue-Status: unread
+X-Roundup-Version: 1.3.3
+In-Reply-To: <dummy_test_message_id>
+MIME-Version: 1.0
+Reply-To: Roundup issue tracker
+ <issue_tracker@your.tracker.email.domain.example>
+Content-Transfer-Encoding: quoted-printable
+
+
+Change by Bork, Chef <chef@bork.bork.bork>:
+
+
+----------
+assignedto:  -> Chef
+
+_______________________________________________________________________
+Roundup issue tracker <issue_tracker@your.tracker.email.domain.example>
+<http://tracker.example/cgi-bin/roundup.cgi/bugs/issue1>
+_______________________________________________________________________
+""")
 
     #
     # FOLLOWUP TITLE MATCH
@@ -2581,6 +2637,25 @@ This is a test submission of a new issue.
         self.assertEqual(l, [self.richard_id, self.mary_id])
         return nodeid
 
+    def testResentFromSwitchedOff(self):
+        self.instance.config.EMAIL_KEEP_REAL_FROM = 'yes'
+        nodeid = self._handle_mail('''Content-Type: text/plain;
+  charset="iso-8859-1"
+From: Chef <chef@bork.bork.bork>
+Resent-From: mary <mary@test.test>
+To: issue_tracker@your.tracker.email.domain.example
+Cc: richard@test.test
+Message-Id: <dummy_test_message_id>
+Subject: [issue] Testing...
+
+This is a test submission of a new issue.
+''')
+        assert not os.path.exists(SENDMAILDEBUG)
+        l = self.db.issue.get(nodeid, 'nosy')
+        l.sort()
+        self.assertEqual(l, [self.chef_id, self.richard_id])
+        return nodeid
+
     def testDejaVu(self):
         self.assertRaises(IgnoreLoop, self._handle_mail,
             '''Content-Type: text/plain;
@@ -3028,6 +3103,56 @@ Roundup issue tracker <issue_tracker@your.tracker.email.domain.example>
 _______________________________________________________________________
 ''')
 
+    def testSpacesAroundMultilinkPropertyValue(self):
+        self.db.keyword.create(name='Foo')
+        self.db.keyword.create(name='Bar')
+        self.db.keyword.create(name='Baz This')
+        nodeid1 = self.doNewIssue()
+        nodeid2 = self._handle_mail('''Content-Type: text/plain;
+  charset="iso-8859-1"
+From: "Bork, Chef" <chef@bork.bork.bork>
+To: issue_tracker@your.tracker.email.domain.example
+Message-Id: <followup_dummy_id>
+In-Reply-To: <dummy_test_message_id>
+Subject: [issue1] set keyword [ keyword =+ Foo,Baz This ; nosy =+ mary ]
+
+Set the Foo and Baz This keywords along with mary for nosy.
+''')
+        assert os.path.exists(SENDMAILDEBUG)
+        self.compareMessages(self._get_mail(),
+'''FROM: roundup-admin@your.tracker.email.domain.example
+TO: mary@test.test, richard@test.test
+Content-Type: text/plain; charset="utf-8"
+Subject: [issue1] set keyword
+To: mary@test.test, richard@test.test
+From: "Bork, Chef" <issue_tracker@your.tracker.email.domain.example>
+Reply-To: Roundup issue tracker
+ <issue_tracker@your.tracker.email.domain.example>
+MIME-Version: 1.0
+Message-Id: <followup_dummy_id>
+In-Reply-To: <dummy_test_message_id>
+X-Roundup-Name: Roundup issue tracker
+X-Roundup-Loop: hello
+X-Roundup-Issue-Status: chatting
+X-Roundup-Issue-keyword: Foo, Baz This
+Content-Transfer-Encoding: quoted-printable
+
+Bork, Chef <chef@bork.bork.bork> added the comment:
+
+Set the Foo and Baz This keywords along with mary for nosy.
+
+----------
+keyword: +Baz This, Foo
+nosy: +mary
+status: unread -> chatting
+title: Testing... -> set keyword
+
+_______________________________________________________________________
+Roundup issue tracker <issue_tracker@your.tracker.email.domain.example>
+<http://tracker.example/cgi-bin/roundup.cgi/bugs/issue1>
+_______________________________________________________________________
+''')
+
     def testOutlookAttachment(self):
         message = '''X-MimeOLE: Produced By Microsoft Exchange V6.5
 Content-class: urn:content-classes:message
@@ -3262,7 +3387,9 @@ Stack trace:
         fileid = self.db.msg.get(msgid, 'files')[0]
         self.assertEqual(self.db.file.get(fileid, 'type'), 'message/rfc822')
 
-class MailgwPGPTestCase(MailgwTestAbstractBase):
+
+@skip_pgp
+class MailgwPGPTestCase(MailgwTestAbstractBase, unittest.TestCase):
     pgphome = gpgmelib.pgphome
     def setUp(self):
         MailgwTestAbstractBase.setUp(self)
@@ -3485,18 +3612,5 @@ zGhS06FLl3V1xx6gBlpqQHjut3efrAGpXGBVpnTJMOcgYAk=
         # check that the message has the right source code
         l = self.db.msg.get(m, 'tx_Source')
         self.assertEqual(l, 'email-sig-openpgp')
-
-def test_suite():
-    suite = unittest.TestSuite()
-    suite.addTest(unittest.makeSuite(MailgwTestCase))
-    if pyme is not None:
-        suite.addTest(unittest.makeSuite(MailgwPGPTestCase))
-    else:
-        print "Skipping PGP tests"
-    return suite
-
-if __name__ == '__main__':
-    runner = unittest.TextTestRunner()
-    unittest.main(testRunner=runner)
 
 # vim: set filetype=python sts=4 sw=4 et si :

@@ -1,12 +1,13 @@
 import re, cgi, time, random, csv, codecs
+from io import BytesIO
 
 from roundup import hyperdb, token, date, password
 from roundup.actions import Action as BaseAction
 from roundup.i18n import _
-import roundup.exceptions
 from roundup.cgi import exceptions, templating
 from roundup.mailgw import uidFromAddress
-from roundup.anypy import io_, urllib_
+from roundup.exceptions import Reject, RejectRaw
+from roundup.anypy import urllib_
 
 __all__ = ['Action', 'ShowAction', 'RetireAction', 'SearchAction',
            'EditCSVAction', 'EditItemAction', 'PassResetAction',
@@ -106,7 +107,7 @@ class RetireAction(Action):
         """Retire the context item."""
         # ensure modification comes via POST
         if self.client.env['REQUEST_METHOD'] != 'POST':
-            raise roundup.exceptions.Reject(self._('Invalid request'))
+            raise Reject(self._('Invalid request'))
 
         # if we want to view the index template now, then unset the itemid
         # context info (a special-case for retire actions on the index page)
@@ -285,7 +286,7 @@ class EditCSVAction(Action):
         """
         # ensure modification comes via POST
         if self.client.env['REQUEST_METHOD'] != 'POST':
-            raise roundup.exceptions.Reject(self._('Invalid request'))
+            raise Reject(self._('Invalid request'))
 
         # figure the properties list for the class
         cl = self.db.classes[self.classname]
@@ -297,7 +298,7 @@ class EditCSVAction(Action):
         props = ['id'] + props_without_id
 
         # do the edit
-        rows = io_.BytesIO(self.form['rows'].value)
+        rows = BytesIO(self.form['rows'].value)
         reader = csv.reader(rows)
         found = {}
         line = 0
@@ -362,6 +363,8 @@ class EditCSVAction(Action):
                         value = value.lower() in ('yes', 'true', 'on', '1')
                     elif isinstance(prop, hyperdb.Number):
                         value = float(value)
+                    elif isinstance(prop, hyperdb.Integer):
+                        value = int(value)
                     d[name] = value
                 elif exists:
                     # nuke the existing value
@@ -490,6 +493,8 @@ class EditCommon(Action):
                                 props[linkprop] = existing
                             else:
                                 props[linkprop] = nodeid
+                    elif isinstance(propdef, hyperdb.Multilink):
+                        props[linkprop].append(nodeid)
 
         return '\n'.join(m)
 
@@ -604,7 +609,7 @@ class EditItemAction(EditCommon):
         """
         # ensure modification comes via POST
         if self.client.env['REQUEST_METHOD'] != 'POST':
-            raise roundup.exceptions.Reject(self._('Invalid request'))
+            raise Reject(self._('Invalid request'))
 
         user_activity = self.lastUserActivity()
         if user_activity:
@@ -618,10 +623,10 @@ class EditItemAction(EditCommon):
         # handle the props
         try:
             message = self._editnodes(props, links)
-        except (ValueError, KeyError, IndexError,
-                roundup.exceptions.Reject), message:
+        except (ValueError, KeyError, IndexError, Reject), message:
+            escape = not isinstance(message, RejectRaw)
             self.client.add_error_message(
-                self._('Edit Error: %s') % str(message))
+                self._('Edit Error: %s') % str(message), escape=escape)
             return
 
         # commit now that all the tricky stuff is done
@@ -650,7 +655,7 @@ class NewItemAction(EditCommon):
         '''
         # ensure modification comes via POST
         if self.client.env['REQUEST_METHOD'] != 'POST':
-            raise roundup.exceptions.Reject(self._('Invalid request'))
+            raise Reject(self._('Invalid request'))
 
         # parse the props from the form
         try:
@@ -664,10 +669,11 @@ class NewItemAction(EditCommon):
         try:
             # when it hits the None element, it'll set self.nodeid
             messages = self._editnodes(props, links)
-        except (ValueError, KeyError, IndexError,
-                roundup.exceptions.Reject), message:
+        except (ValueError, KeyError, IndexError, Reject), message:
+            escape = not isinstance(message, RejectRaw)
             # these errors might just be indicative of user dumbness
-            self.client.add_error_message(_('Error: %s') % str(message))
+            self.client.add_error_message(_('Error: %s') % str(message),
+                                          escape=escape)
             return
 
         # commit now that all the tricky stuff is done
@@ -837,7 +843,7 @@ class RegisterAction(RegoCommon, EditCommon):
         """
         # ensure modification comes via POST
         if self.client.env['REQUEST_METHOD'] != 'POST':
-            raise roundup.exceptions.Reject(self._('Invalid request'))
+            raise Reject(self._('Invalid request'))
 
         # parse the props from the form
         try:
@@ -853,10 +859,11 @@ class RegisterAction(RegoCommon, EditCommon):
             try:
                 # when it hits the None element, it'll set self.nodeid
                 messages = self._editnodes(props, links)
-            except (ValueError, KeyError, IndexError,
-                    roundup.exceptions.Reject), message:
+            except (ValueError, KeyError, IndexError, Reject), message:
+                escape = not isinstance(message, RejectRaw)
                 # these errors might just be indicative of user dumbness
-                self.client.add_error_message(_('Error: %s') % str(message))
+                self.client.add_error_message(_('Error: %s') % str(message),
+                                              escape=escape)
                 return
 
             # fix up the initial roles
@@ -961,7 +968,7 @@ class LoginAction(Action):
         """
         # ensure modification comes via POST
         if self.client.env['REQUEST_METHOD'] != 'POST':
-            raise roundup.exceptions.Reject(self._('Invalid request'))
+            raise Reject(self._('Invalid request'))
 
         # we need the username at a minimum
         if '__login_name' not in self.form:

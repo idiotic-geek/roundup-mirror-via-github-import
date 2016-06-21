@@ -263,6 +263,11 @@ class NumberHTMLProperty(HTMLProperty):
     def __int__(self):
     def __float__(self):
 
+class IntegerHTMLProperty(HTMLProperty):
+    def plain(self):
+    def field(self, size = 30):
+    def __int__(self):
+
 class BooleanHTMLProperty(HTMLProperty):
     def plain(self):
     def field(self):
@@ -348,17 +353,5 @@ class RoundupPageTemplate(PageTemplate.PageTemplate):
     def render(self, client, classname, request, **options):
     def __repr__(self):
 '''
-
-
-def test_suite():
-    suite = unittest.TestSuite()
-    suite.addTest(unittest.makeSuite(HTMLDatabaseTestCase))
-    suite.addTest(unittest.makeSuite(FunctionsTestCase))
-    suite.addTest(unittest.makeSuite(HTMLClassTestCase))
-    return suite
-
-if __name__ == '__main__':
-    runner = unittest.TextTestRunner()
-    unittest.main(testRunner=runner)
 
 # vim: set et sts=4 sw=4 :
