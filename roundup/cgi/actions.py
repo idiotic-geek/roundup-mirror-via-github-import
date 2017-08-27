@@ -402,6 +402,7 @@ class SearchAction(Action):
                     continue
                 if isinstance(prop, hyperdb.String):
                     v = self.form[key].value
+                    # If this ever has unbalanced quotes, hilarity will ensue
                     l = token.token_split(v)
                     if len(l) != 1 or l[0] != v:
                         self.form.value.remove(self.form[key])
@@ -633,8 +634,13 @@ class EditCommon(Action):
                             self._('%(class)s %(id)s %(properties)s edited ok')
                             % {'class':cn, 'id':nodeid, 'properties':info})
                     else:
-                        m.append(self._('%(class)s %(id)s - nothing changed')
-                            % {'class':cn, 'id':nodeid})
+                        # this used to produce a message like:
+                        #    issue34 - nothing changed
+                        # which is confusing if only quiet properties
+                        # changed for the class/id. So don't report
+                        # anything is the user didn't explicitly change
+                        # a visible (non-quiet) property.
+                        pass
                 else:
                     assert props
 
@@ -799,7 +805,7 @@ class EditItemAction(EditCommon):
         # handle the props
         try:
             message = self._editnodes(props, links)
-        except (ValueError, KeyError, IndexError, Reject), message:
+        except (ValueError, KeyError, IndexError, Reject) as message:
             escape = not isinstance(message, RejectRaw)
             self.client.add_error_message(
                 self._('Edit Error: %s') % str(message), escape=escape)
@@ -836,7 +842,7 @@ class NewItemAction(EditCommon):
         # parse the props from the form
         try:
             props, links = self.client.parsePropsFromForm(create=1)
-        except (ValueError, KeyError), message:
+        except (ValueError, KeyError) as message:
             self.client.add_error_message(self._('Error: %s')
                 % str(message))
             return
@@ -845,7 +851,7 @@ class NewItemAction(EditCommon):
         try:
             # when it hits the None element, it'll set self.nodeid
             messages = self._editnodes(props, links)
-        except (ValueError, KeyError, IndexError, Reject), message:
+        except (ValueError, KeyError, IndexError, Reject) as message:
             escape = not isinstance(message, RejectRaw)
             # these errors might just be indicative of user dumbness
             self.client.add_error_message(_('Error: %s') % str(message),
@@ -906,7 +912,7 @@ class PassResetAction(Action):
                 # clear the props from the otk database
                 otks.destroy(otk)
                 self.db.commit()
-            except (ValueError, KeyError), message:
+            except (ValueError, KeyError) as message:
                 self.client.add_error_message(str(message))
                 return
 
@@ -1012,7 +1018,7 @@ class ConfRegoAction(RegoCommon):
         try:
             # pull the rego information out of the otk database
             self.userid = self.db.confirm_registration(self.form['otk'].value)
-        except (ValueError, KeyError), message:
+        except (ValueError, KeyError) as message:
             self.client.add_error_message(str(message))
             return
         return self.finishRego()
@@ -1034,7 +1040,7 @@ class RegisterAction(RegoCommon, EditCommon):
         # parse the props from the form
         try:
             props, links = self.client.parsePropsFromForm(create=1)
-        except (ValueError, KeyError), message:
+        except (ValueError, KeyError) as message:
             self.client.add_error_message(self._('Error: %s')
                 % str(message))
             return
@@ -1045,7 +1051,7 @@ class RegisterAction(RegoCommon, EditCommon):
             try:
                 # when it hits the None element, it'll set self.nodeid
                 messages = self._editnodes(props, links)
-            except (ValueError, KeyError, IndexError, Reject), message:
+            except (ValueError, KeyError, IndexError, Reject) as message:
                 escape = not isinstance(message, RejectRaw)
                 # these errors might just be indicative of user dumbness
                 self.client.add_error_message(_('Error: %s') % str(message),
@@ -1218,7 +1224,7 @@ class LoginAction(Action):
 
         try:
             self.verifyLogin(self.client.user, password)
-        except exceptions.LoginError, err:
+        except exceptions.LoginError as err:
             self.client.make_user_anonymous()
             for arg in err.args:
                 self.client.add_error_message(arg)
