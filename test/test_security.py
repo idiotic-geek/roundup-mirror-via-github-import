@@ -18,11 +18,12 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+from __future__ import print_function
 import os, unittest, shutil
 
 from roundup import backends
 import roundup.password
-from db_test_base import setupSchema, MyTestCase, config
+from .db_test_base import setupSchema, MyTestCase, config
 
 
 class PermissionTest(MyTestCase, unittest.TestCase):
@@ -219,7 +220,7 @@ class PermissionTest(MyTestCase, unittest.TestCase):
                                check=check_old_style,
                                properties=['a', 'b']))
         user7 = self.db.user.create(username='user7', roles='Role7')
-        print user7
+        print(user7)
 
         # *any* access to class
         self.assertEquals(has('Test', user1, 'test'), 1)

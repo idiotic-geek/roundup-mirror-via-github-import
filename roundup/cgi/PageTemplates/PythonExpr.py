@@ -17,7 +17,7 @@
 """Generic Python Expression Handler
 """
 
-from TALES import CompilerError
+from .TALES import CompilerError
 from sys import exc_info
 
 class getSecurityManager:
@@ -31,16 +31,16 @@ class PythonExpr:
         self.expr = expr = expr.strip().replace('\n', ' ')
         try:
             d = {}
-            exec 'def f():\n return %s\n' % expr.strip() in d
+            exec('def f():\n return %s\n' % expr.strip(), d)
             self._f = d['f']
         except:
-            raise CompilerError, ('Python expression error:\n'
-                                  '%s: %s') % exc_info()[:2]
+            raise CompilerError(('Python expression error:\n'
+                                 '%s: %s') % exc_info()[:2])
         self._get_used_names()
 
     def _get_used_names(self):
         self._f_varnames = vnames = []
-        for vname in self._f.func_code.co_names:
+        for vname in self._f.__code__.co_names:
             if vname[0] not in '$_':
                 vnames.append(vname)
 
@@ -63,7 +63,7 @@ class PythonExpr:
     def __call__(self, econtext):
         __traceback_info__ = 'python expression "%s"'%self.expr
         f = self._f
-        f.func_globals.update(self._bind_used_names(econtext))
+        f.__globals__.update(self._bind_used_names(econtext))
         return f()
 
     def __str__(self):

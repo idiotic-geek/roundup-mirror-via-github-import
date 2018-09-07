@@ -17,9 +17,9 @@ Parse HTML and compile to TALInterpreter intermediate code.
 
 import sys
 
-from TALGenerator import TALGenerator
-from HTMLParser import HTMLParser, HTMLParseError
-from TALDefs import \
+from .TALGenerator import TALGenerator
+from .HTMLParser import HTMLParser, HTMLParseError
+from .TALDefs import \
      ZOPE_METAL_NS, ZOPE_TAL_NS, ZOPE_I18N_NS, METALError, TALError, I18NError
 
 BOOLEAN_HTML_ATTRS = [
@@ -61,7 +61,7 @@ BLOCK_LEVEL_HTML_TAGS = [
     ]
 
 TIGHTEN_IMPLICIT_CLOSE_TAGS = (PARA_LEVEL_HTML_TAGS
-                               + BLOCK_CLOSING_TAG_MAP.keys())
+                               + list(BLOCK_CLOSING_TAG_MAP.keys()))
 
 
 class NestingError(HTMLParseError):
@@ -144,7 +144,7 @@ class HTMLTALParser(HTMLParser):
              = self.process_ns(tag, attrs)
         if tag in EMPTY_HTML_TAGS and taldict.get("content"):
             raise TALError(
-                "empty HTML tags cannot use tal:content: %s" % `tag`,
+                "empty HTML tags cannot use tal:content: %s" % repr(tag),
                 self.getpos())
         self.tagstack.append(tag)
         self.gen.emitStartElement(tag, attrlist, taldict, metaldict, i18ndict,
@@ -160,7 +160,7 @@ class HTMLTALParser(HTMLParser):
         if taldict.get("content"):
             if tag in EMPTY_HTML_TAGS:
                 raise TALError(
-                    "empty HTML tags cannot use tal:content: %s" % `tag`,
+                    "empty HTML tags cannot use tal:content: %s" % repr(tag),
                     self.getpos())
             self.gen.emitStartElement(tag, attrlist, taldict, metaldict,
                                       i18ndict, self.getpos())
@@ -183,7 +183,7 @@ class HTMLTALParser(HTMLParser):
         if tag in EMPTY_HTML_TAGS:
             return
         close_to = -1
-        if BLOCK_CLOSING_TAG_MAP.has_key(tag):
+        if tag in BLOCK_CLOSING_TAG_MAP:
             blocks_to_close = BLOCK_CLOSING_TAG_MAP[tag]
             for i in range(len(self.tagstack)):
                 t = self.tagstack[i]
@@ -295,19 +295,19 @@ class HTMLTALParser(HTMLParser):
             if ns and ns != 'unknown':
                 item = (key, value, ns)
             if ns == 'tal':
-                if taldict.has_key(keybase):
+                if keybase in taldict:
                     raise TALError("duplicate TAL attribute " +
-                                   `keybase`, self.getpos())
+                                   repr(keybase), self.getpos())
                 taldict[keybase] = value
             elif ns == 'metal':
-                if metaldict.has_key(keybase):
+                if keybase in metaldict:
                     raise METALError("duplicate METAL attribute " +
-                                     `keybase`, self.getpos())
+                                     repr(keybase), self.getpos())
                 metaldict[keybase] = value
             elif ns == 'i18n':
-                if i18ndict.has_key(keybase):
+                if keybase in i18ndict:
                     raise I18NError("duplicate i18n attribute " +
-                                    `keybase`, self.getpos())
+                                    repr(keybase), self.getpos())
                 i18ndict[keybase] = value
             attrlist.append(item)
         if namens in ('metal', 'tal'):

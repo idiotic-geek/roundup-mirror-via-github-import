@@ -15,10 +15,11 @@
 # BASIS, AND THERE IS NO OBLIGATION WHATSOEVER TO PROVIDE MAINTENANCE,
 # SUPPORT, UPDATES, ENHANCEMENTS, OR MODIFICATIONS.
 
+from __future__ import print_function
 import unittest, os, shutil, errno, imp, sys, time, pprint, base64, os.path
 import logging, cgi
-import gpgmelib
-from email.parser import FeedParser
+from . import gpgmelib
+from email import message_from_string
 
 import pytest
 from roundup.hyperdb import String, Password, Link, Multilink, Date, \
@@ -33,7 +34,11 @@ from roundup.cgi.engine_zopetal import RoundupPageTemplate
 from roundup.cgi.templating import HTMLItem
 from roundup.exceptions import UsageError, Reject
 
-from mocknull import MockNull
+from roundup.anypy.strings import b2s, s2b, u2s
+from roundup.anypy.cmp_ import NoneAndDictComparable
+from roundup.anypy.email_ import message_from_bytes
+
+from .mocknull import MockNull
 
 config = configuration.CoreConfig()
 config.DATABASE = "db"
@@ -149,7 +154,7 @@ class MyTestCase(object):
         self.db = self.module.Database(config, user)
 
 
-if os.environ.has_key('LOGGING_LEVEL'):
+if 'LOGGING_LEVEL' in os.environ:
     logger = logging.getLogger('roundup.hyperdb')
     logger.setLevel(os.environ['LOGGING_LEVEL'])
 
@@ -284,15 +289,20 @@ class DBTest(commonDBTest):
 
     def testStringUnicode(self):
         # test set & retrieve
-        ustr = u'\xe4\xf6\xfc\u20ac'.encode('utf8')
+        ustr = u2s(u'\xe4\xf6\xfc\u20ac')
         nid = self.db.issue.create(title=ustr, status='1')
         self.assertEqual(self.db.issue.get(nid, 'title'), ustr)
 
         # change and make sure we retrieve the correct value
-        ustr2 = u'change \u20ac change'.encode('utf8')
+        ustr2 = u2s(u'change \u20ac change')
         self.db.issue.set(nid, title=ustr2)
         self.db.commit()
         self.assertEqual(self.db.issue.get(nid, 'title'), ustr2)
+
+        # test set & retrieve (this time for file contents)
+        nid = self.db.file.create(content=ustr)
+        self.assertEqual(self.db.file.get(nid, 'content'), ustr)
+        self.assertEqual(self.db.file.get(nid, 'binary_content'), s2b(ustr))
 
     # Link
     def testLinkChange(self):
@@ -414,7 +424,7 @@ class DBTest(commonDBTest):
             # internally for storing NULL. The others would, too
             # because metakit tries to convert date.timestamp to an int
             # for storing and fails with an overflow.
-            for d in [date.Date (x) for x in '2038', '1970', '0033', '9999']:
+            for d in [date.Date (x) for x in ('2038', '1970', '0033', '9999')]:
                 self.db.issue.set(nid, deadline=d)
                 if commit: self.db.commit()
                 c = self.db.issue.get(nid, "deadline")
@@ -1048,7 +1058,7 @@ class DBTest(commonDBTest):
 
         # check history including quiet properties
         result=self.db.issue.history(new_issue, skipquiet=False)
-        print result
+        print(result)
         ''' output should be like:
              [ ... ('1', <Date 2017-04-14.01:41:08.466>, '1', 'set',
                  {'assignedto': None, 'nosy': (('+', ['3', '2']),),
@@ -1061,7 +1071,7 @@ class DBTest(commonDBTest):
                     'title': 'title'}
 
         result.sort()
-        print "history include quiet props", result[-1]
+        print("history include quiet props", result[-1])
         (id, tx_date, user, action, args) = result[-1]
         # check piecewise ignoring date of transaction
         self.assertEqual('1', id)
@@ -1078,7 +1088,7 @@ class DBTest(commonDBTest):
         expected = {'title': 'title'}
 
         result.sort()
-        print "history remove quiet props", result[-1]
+        print("history remove quiet props", result[-1])
         (id, tx_date, user, action, args) = result[-1]
         # check piecewise
         self.assertEqual('1', id)
@@ -1112,7 +1122,7 @@ class DBTest(commonDBTest):
                     'deadline': date.Date("2016-07-30.22:39:00.000")}
 
         result.sort()
-        print "result unquiet", result
+        print("result unquiet", result)
         (id, tx_date, user, action, args) = result[-1]
         # check piecewise
         self.assertEqual('1', id)
@@ -1229,8 +1239,7 @@ class DBTest(commonDBTest):
         self.assertEqual(nodeid, '1')
         self.assertEqual(journaltag, self.db.user.lookup('admin'))
         self.assertEqual(action, 'create')
-        keys = params.keys()
-        keys.sort()
+        keys = sorted(params.keys())
         self.assertEqual(keys, [])
 
         # journal entry for link
@@ -1442,7 +1451,7 @@ class DBTest(commonDBTest):
         i1 = self.db.issue.create(files=[f1, f2])
         self.db.commit()
         d = self.db.indexer.search(['hello'], self.db.issue)
-        self.assert_(d.has_key(i1))
+        self.assert_(i1 in d)
         d[i1]['files'].sort()
         self.assertEquals(d, {i1: {'files': [f1, f2]}})
         self.assertEquals(self.db.indexer.search(['world'], self.db.issue),
@@ -2278,11 +2287,11 @@ class DBTest(commonDBTest):
             shutil.rmtree('_test_export')
 
         # compare with snapshot of the database
-        for cn, items in orig.iteritems():
+        for cn, items in orig.items():
             klass = self.db.classes[cn]
             propdefs = klass.getprops(1)
             # ensure retired items are retired :)
-            l = items.keys(); l.sort()
+            l = sorted(items.keys())
             m = klass.list(); m.sort()
             ae(l, m, '%s id list wrong %r vs. %r'%(cn, l, m))
             for id, props in items.items():
@@ -2298,8 +2307,8 @@ class DBTest(commonDBTest):
                             raise
                         # don't get hung up on rounding errors
                         assert not l.__cmp__(value, int_seconds=1)
-        for jc, items in origj.iteritems():
-            for id, oj in items.iteritems():
+        for jc, items in origj.items():
+            for id, oj in items.items():
                 rj = self.db.getjournal(jc, id)
                 # Both mysql and postgresql have some minor issues with
                 # rounded seconds on export/import, so we compare only
@@ -2308,8 +2317,8 @@ class DBTest(commonDBTest):
                     j[1].second = float(int(j[1].second))
                 for j in rj:
                     j[1].second = float(int(j[1].second))
-                oj.sort()
-                rj.sort()
+                oj.sort(key = NoneAndDictComparable)
+                rj.sort(key = NoneAndDictComparable)
                 ae(oj, rj)
 
         # make sure the retired items are actually imported
@@ -2318,7 +2327,7 @@ class DBTest(commonDBTest):
 
         # make sure id counters are set correctly
         maxid = max([int(id) for id in self.db.user.list()])
-        newid = self.db.user.create(username='testing')
+        newid = int(self.db.user.create(username='testing'))
         assert newid > maxid
 
     # test import/export via admin interface
@@ -2420,18 +2429,19 @@ class DBTest(commonDBTest):
             # FIXME there should be some test here
  
             issue_class_spec = tool.do_specification(["issue"])
-            self.assertEqual(soutput, ['files: <roundup.hyperdb.Multilink to "file">\n',
-                                       'status: <roundup.hyperdb.Link to "status">\n',
-                                       'feedback: <roundup.hyperdb.Link to "msg">\n',
-                                       'spam: <roundup.hyperdb.Multilink to "msg">\n',
-                                       'nosy: <roundup.hyperdb.Multilink to "user">\n',
-                                       'title: <roundup.hyperdb.String>\n',
-                                       'messages: <roundup.hyperdb.Multilink to "msg">\n',
-                                       'priority: <roundup.hyperdb.Link to "priority">\n',
-                                       'assignedto: <roundup.hyperdb.Link to "user">\n',
-                                       'deadline: <roundup.hyperdb.Date>\n',
-                                       'foo: <roundup.hyperdb.Interval>\n',
-                                       'superseder: <roundup.hyperdb.Multilink to "issue">\n'])
+            self.assertEqual(sorted (soutput),
+                             ['assignedto: <roundup.hyperdb.Link to "user">\n',
+                              'deadline: <roundup.hyperdb.Date>\n',
+                              'feedback: <roundup.hyperdb.Link to "msg">\n',
+                              'files: <roundup.hyperdb.Multilink to "file">\n',
+                              'foo: <roundup.hyperdb.Interval>\n',
+                              'messages: <roundup.hyperdb.Multilink to "msg">\n',
+                              'nosy: <roundup.hyperdb.Multilink to "user">\n',
+                              'priority: <roundup.hyperdb.Link to "priority">\n',
+                              'spam: <roundup.hyperdb.Multilink to "msg">\n',
+                              'status: <roundup.hyperdb.Link to "status">\n',
+                              'superseder: <roundup.hyperdb.Multilink to "issue">\n',
+                              'title: <roundup.hyperdb.String>\n'])
 
             #userclassprop=tool.do_list(["mls"])
             #tool.print_designator = False
@@ -2524,8 +2534,7 @@ class DBTest(commonDBTest):
         # force any post-init stuff to happen
         self.db.post_init()
         props = self.db.issue.getprops()
-        keys = props.keys()
-        keys.sort()
+        keys = sorted(props.keys())
         self.assertEqual(keys, ['activity', 'actor', 'assignedto', 'creation',
             'creator', 'deadline', 'feedback', 'files', 'fixer', 'foo', 'id', 'messages',
             'nosy', 'priority', 'spam', 'status', 'superseder', 'title'])
@@ -2538,8 +2547,7 @@ class DBTest(commonDBTest):
         del self.db.issue.properties['title']
         self.db.post_init()
         props = self.db.issue.getprops()
-        keys = props.keys()
-        keys.sort()
+        keys = sorted(props.keys())
         self.assertEqual(keys, ['activity', 'actor', 'assignedto', 'creation',
             'creator', 'deadline', 'feedback', 'files', 'foo', 'id', 'messages',
             'nosy', 'priority', 'spam', 'status', 'superseder'])
@@ -2553,8 +2561,7 @@ class DBTest(commonDBTest):
         del self.db.issue.properties['title']
         self.db.post_init()
         props = self.db.issue.getprops()
-        keys = props.keys()
-        keys.sort()
+        keys = sorted(props.keys())
         self.assertEqual(keys, ['activity', 'actor', 'assignedto', 'creation',
             'creator', 'deadline', 'feedback', 'files', 'fixer', 'foo', 'id',
             'messages', 'nosy', 'priority', 'spam', 'status', 'superseder'])
@@ -2573,8 +2580,8 @@ class DBTest(commonDBTest):
             res["mail_to"], res["mail_msg"] = to, msg
         backup, Mailer.smtp_send = Mailer.smtp_send, dummy_snd
         try :
-            f1 = db.file.create(name="test1.txt", content="x" * 20)
-            f2 = db.file.create(name="test2.txt", content="y" * 5000)
+            f1 = db.file.create(name="test1.txt", content="x" * 20, type="application/octet-stream")
+            f2 = db.file.create(name="test2.txt", content="y" * 5000, type="application/octet-stream")
             m  = db.msg.create(content="one two", author="admin",
                 files = [f1, f2])
             i  = db.issue.create(title='spam', files = [f1, f2],
@@ -2588,14 +2595,45 @@ class DBTest(commonDBTest):
             self.assert_("New submission from admin" in mail_msg)
             self.assert_("one two" in mail_msg)
             self.assert_("File 'test1.txt' not attached" not in mail_msg)
-            self.assert_(base64.encodestring("xxx").rstrip() in mail_msg)
+            self.assert_(b2s(base64.encodestring(s2b("xxx"))).rstrip() in mail_msg)
             self.assert_("File 'test2.txt' not attached" in mail_msg)
-            self.assert_(base64.encodestring("yyy").rstrip() not in mail_msg)
+            self.assert_(b2s(base64.encodestring(s2b("yyy"))).rstrip() not in mail_msg)
         finally :
             roundupdb._ = old_translate_
             Mailer.smtp_send = backup
 
-    @pytest.mark.skipif(gpgmelib.pyme is None, reason='Skipping PGPNosy test')
+    def testNosyMailTextAndBinary(self) :
+        """Creates one issue with two attachments, one as text and one as binary.
+        """
+        old_translate_ = roundupdb._
+        roundupdb._ = i18n.get_translation(language='C').gettext
+        db = self.db
+        res = dict(mail_to = None, mail_msg = None)
+        def dummy_snd(s, to, msg, res=res) :
+            res["mail_to"], res["mail_msg"] = to, msg
+        backup, Mailer.smtp_send = Mailer.smtp_send, dummy_snd
+        try :
+            f1 = db.file.create(name="test1.txt", content="Hello world", type="text/plain")
+            f2 = db.file.create(name="test2.bin", content=b"\x01\x02\x03\xfe\xff", type="application/octet-stream")
+            m  = db.msg.create(content="one two", author="admin",
+                files = [f1, f2])
+            i  = db.issue.create(title='spam', files = [f1, f2],
+                messages = [m], nosy = [db.user.lookup("fred")])
+
+            db.issue.nosymessage(i, m, {})
+            mail_msg = str(res["mail_msg"])
+            self.assertEqual(res["mail_to"], ["fred@example.com"])
+            self.assert_("From: admin" in mail_msg)
+            self.assert_("Subject: [issue1] spam" in mail_msg)
+            self.assert_("New submission from admin" in mail_msg)
+            self.assert_("one two" in mail_msg)
+            self.assert_("Hello world" in mail_msg)
+            self.assert_(b2s(base64.encodestring(b"\x01\x02\x03\xfe\xff")).rstrip() in mail_msg)
+        finally :
+            roundupdb._ = old_translate_
+            Mailer.smtp_send = backup
+
+    @pytest.mark.skipif(gpgmelib.gpg is None, reason='Skipping PGPNosy test')
     def testPGPNosyMail(self) :
         """Creates one issue with two attachments, one smaller and one larger
            than the set max_attachment_size. Recipients are one with and
@@ -2617,8 +2655,8 @@ class DBTest(commonDBTest):
         try :
             john = db.user.create(username="john", roles='User,pgp',
                 address='john@test.test', realname='John Doe')
-            f1 = db.file.create(name="test1.txt", content="x" * 20)
-            f2 = db.file.create(name="test2.txt", content="y" * 5000)
+            f1 = db.file.create(name="test1.txt", content="x" * 20, type="application/octet-stream")
+            f2 = db.file.create(name="test2.txt", content="y" * 5000, type="application/octet-stream")
             m  = db.msg.create(content="one two", author="admin",
                 files = [f1, f2])
             i  = db.issue.create(title='spam', files = [f1, f2],
@@ -2634,32 +2672,28 @@ class DBTest(commonDBTest):
             self.assert_("New submission from admin" in mail_msg)
             self.assert_("one two" in mail_msg)
             self.assert_("File 'test1.txt' not attached" not in mail_msg)
-            self.assert_(base64.encodestring("xxx").rstrip() in mail_msg)
+            self.assert_(b2s(base64.encodestring(s2b("xxx"))).rstrip() in mail_msg)
             self.assert_("File 'test2.txt' not attached" in mail_msg)
-            self.assert_(base64.encodestring("yyy").rstrip() not in mail_msg)
-            fp = FeedParser()
+            self.assert_(b2s(base64.encodestring(s2b("yyy"))).rstrip() not in mail_msg)
             mail_msg = str(res[1]["mail_msg"])
-            fp.feed(mail_msg)
-            parts = fp.close().get_payload()
+            parts = message_from_string(mail_msg).get_payload()
             self.assertEqual(len(parts),2)
             self.assertEqual(parts[0].get_payload().strip(), 'Version: 1')
-            crypt = gpgmelib.pyme.core.Data(parts[1].get_payload())
-            plain = gpgmelib.pyme.core.Data()
-            ctx = gpgmelib.pyme.core.Context()
+            crypt = gpgmelib.gpg.core.Data(parts[1].get_payload())
+            plain = gpgmelib.gpg.core.Data()
+            ctx = gpgmelib.gpg.core.Context()
             res = ctx.op_decrypt(crypt, plain)
             self.assertEqual(res, None)
             plain.seek(0,0)
-            fp = FeedParser()
-            fp.feed(plain.read())
             self.assert_("From: admin" in mail_msg)
             self.assert_("Subject: [issue1] spam" in mail_msg)
-            mail_msg = str(fp.close())
+            mail_msg = str(message_from_bytes(plain.read()))
             self.assert_("New submission from admin" in mail_msg)
             self.assert_("one two" in mail_msg)
             self.assert_("File 'test1.txt' not attached" not in mail_msg)
-            self.assert_(base64.encodestring("xxx").rstrip() in mail_msg)
+            self.assert_(b2s(base64.encodestring(s2b("xxx"))).rstrip() in mail_msg)
             self.assert_("File 'test2.txt' not attached" in mail_msg)
-            self.assert_(base64.encodestring("yyy").rstrip() not in mail_msg)
+            self.assert_(b2s(base64.encodestring(s2b("yyy"))).rstrip() not in mail_msg)
         finally :
             roundupdb._ = old_translate_
             Mailer.smtp_send = backup
@@ -2715,8 +2749,7 @@ class SchemaTest(MyTestCase):
     def test_fileClassProps(self):
         self.open_database()
         a = self.module.FileClass(self.db, 'a')
-        l = a.getprops().keys()
-        l.sort()
+        l = sorted(a.getprops().keys())
         self.assert_(l, ['activity', 'actor', 'content', 'created',
             'creation', 'type'])
 
@@ -3004,7 +3037,7 @@ class FilterCacheTest(commonDBTest):
             for x in range(4):
                 assert(('user', nodeid) in self.db.cache)
                 n = self.db.user.getnode(nodeid)
-                for k, v in user_result[nodeid].iteritems():
+                for k, v in user_result[nodeid].items():
                     ae((k, n[k]), (k, v))
                 for k in 'creation', 'activity':
                     assert(n[k])
@@ -3021,7 +3054,7 @@ class FilterCacheTest(commonDBTest):
             result.append(id)
             assert(('issue', id) in self.db.cache)
             n = self.db.issue.getnode(id)
-            for k, v in issue_result[id].iteritems():
+            for k, v in issue_result[id].items():
                 ae((k, n[k]), (k, v))
             for k in 'creation', 'activity':
                 assert(n[k])
@@ -3029,7 +3062,7 @@ class FilterCacheTest(commonDBTest):
             for x in range(4):
                 assert(('user', nodeid) in self.db.cache)
                 n = self.db.user.getnode(nodeid)
-                for k, v in user_result[nodeid].iteritems():
+                for k, v in user_result[nodeid].items():
                     ae((k, n[k]), (k, v))
                 for k in 'creation', 'activity':
                     assert(n[k])
@@ -3315,7 +3348,7 @@ class SpecialActionTest(FormTestParent):
         self.instance.registerAction('special', SpecialAction)
         self.issue = self.db.issue.create (title = "hello", status='1')
         self.db.commit ()
-        if not os.environ.has_key('SENDMAILDEBUG'):
+        if 'SENDMAILDEBUG' not in os.environ:
             os.environ['SENDMAILDEBUG'] = 'mail-test2.log'
         self.SENDMAILDEBUG = os.environ['SENDMAILDEBUG']
         page_template = """
@@ -3370,7 +3403,7 @@ class SpecialActionTest(FormTestParent):
     def testInnerMain(self):
         cl = self.client
         cl.session_api = MockNull(_sid="1234567890")
-        self.form ['@nonce'] = anti_csrf_nonce(cl, cl)
+        self.form ['@nonce'] = anti_csrf_nonce(cl)
         cl.form = makeForm(self.form)
         # inner_main will re-open the database!
         # Note that in the template above, the rendering of the
@@ -3378,7 +3411,7 @@ class SpecialActionTest(FormTestParent):
         # does a commit of the otk to the database.
         cl.inner_main()
         cl.db.close()
-        print self.out
+        print(self.out)
         # Make sure the action was called
         self.assertEqual(SpecialAction.x, True)
         # Check that the Reject worked:

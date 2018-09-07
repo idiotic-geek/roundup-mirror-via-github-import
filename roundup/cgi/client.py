@@ -11,19 +11,17 @@ import socket, errno, hashlib
 import email.utils
 from traceback import format_exc
 
-try: 
-    # Use the cryptographic source of randomness if available
-    from random import SystemRandom
-    random=SystemRandom()
+import roundup.anypy.random_ as random_
+if not random_.is_weak:
     logger.debug("Importing good random generator")
-except ImportError:
-    from random import random
+else:
     logger.warning("**SystemRandom not available. Using poor random generator")
 
 try:
     from OpenSSL.SSL import SysCallError
 except ImportError:
-    SysCallError = None
+    class SysCallError(Exception):
+        pass
 
 from roundup import roundupdb, date, hyperdb, password
 from roundup.cgi import templating, cgitb, TranslationService
@@ -34,7 +32,7 @@ from roundup.cgi.exceptions import (
     FormError, NotFound, NotModified, Redirect, SendFile, SendStaticFile,
     DetectorError, SeriousError)
 from roundup.cgi.form_parser import FormParser
-from roundup.mailer import Mailer, MessageSendError, encode_quopri
+from roundup.mailer import Mailer, MessageSendError
 from roundup.cgi import accept_language
 from roundup import xmlrpc
 
@@ -42,12 +40,14 @@ from roundup.anypy.cookie_ import CookieError, BaseCookie, SimpleCookie, \
     get_cookie_date
 from roundup.anypy import http_
 from roundup.anypy import urllib_
+from roundup.anypy import xmlrpc_
 
-from email.MIMEBase import MIMEBase
-from email.MIMEText import MIMEText
-from email.MIMEMultipart import MIMEMultipart
+from email.mime.base import MIMEBase
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 import roundup.anypy.email_
-import xmlrpclib
+
+from roundup.anypy.strings import s2b, b2s, uchr
 
 def initialiseSecurity(security):
     '''Create some Permissions and Roles on the security object
@@ -174,8 +174,7 @@ class Session:
     def _gen_sid(self):
         """ generate a unique session key """
         while 1:
-            s = '%s%s'%(time.time(), random.random())
-            s = binascii.b2a_base64(s).strip()
+            s = b2s(binascii.b2a_base64(random_.token_bytes(32)).strip())
             if not self.session_db.exists(s):
                 break
 
@@ -320,7 +319,7 @@ class Client:
     def __init__(self, instance, request, env, form=None, translator=None):
         # re-seed the random number generator. Is this is an instance of
         # random.SystemRandom it has no effect.
-        random.seed()
+        random_.seed()
         # So we also seed the pseudorandom random source obtained from
         #    import random
         # to make sure that every forked copy of the client will return
@@ -398,8 +397,7 @@ class Client:
 
     def _gen_nonce(self):
         """ generate a unique nonce """
-        n = '%s%s%s'%(random.random(), id(self), time.time() )
-        n = hashlib.sha256(n).hexdigest()
+        n = b2s(base64.b32encode(random_.token_bytes(40)))
         return n
 
     def setTranslator(self, translator=None):
@@ -435,9 +433,9 @@ class Client:
 
     def handle_xmlrpc(self):
         if self.env.get('CONTENT_TYPE') != 'text/xml':
-            self.write("This is the endpoint of Roundup <a href='" +
-                "http://www.roundup-tracker.org/docs/xmlrpc.html'>" +
-                "XML-RPC interface</a>.")
+            self.write(b"This is the endpoint of Roundup <a href='" +
+                b"http://www.roundup-tracker.org/docs/xmlrpc.html'>" +
+                b"XML-RPC interface</a>.")
             return
 
         # Pull the raw XML out of the form.  The "value" attribute
@@ -466,8 +464,8 @@ class Client:
         except (Unauthorised, UsageError) as msg:
             # report exception back to server
             exc_type, exc_value, exc_tb = sys.exc_info()
-            output = xmlrpclib.dumps(
-                xmlrpclib.Fault(1, "%s:%s" % (exc_type, exc_value)),
+            output = xmlrpc_.client.dumps(
+                xmlrpc_.client.Fault(1, "%s:%s" % (exc_type, exc_value)),
                 allow_none=True)
             csrf_ok = False # we had an error, failed check
 
@@ -550,7 +548,7 @@ class Client:
                 except (UsageError, Unauthorised) as msg:
                     csrf_ok = False
                     self.form_wins = True
-                    self._error_message = msg
+                    self._error_message = msg.args
 
                 if csrf_ok:
                     # csrf checks pass. Run actions etc.
@@ -778,7 +776,7 @@ class Client:
                     uc = int(num[1:], 16)
                 else:
                     uc = int(num)
-                return unichr(uc)
+                return uchr(uc)
 
             for field_name in self.form:
                 field = self.form[field_name]
@@ -842,10 +840,10 @@ class Client:
                 scheme, challenge = auth.split(' ', 1)
                 if scheme.lower() == 'basic':
                     try:
-                        decoded = base64.decodestring(challenge)
+                        decoded = b2s(base64.b64decode(challenge))
                     except TypeError:
                         # invalid challenge
-                        pass
+                        decoded = ''
                     username, password = decoded.split(':', 1)
                     try:
                         # Current user may not be None, otherwise
@@ -861,7 +859,7 @@ class Client:
                     # try to seed with something harder to guess than
                     # just the time. If random is SystemRandom,
                     # this is a no-op.
-                    random.seed("%s%s"%(password,time.time())) 
+                    random_.seed("%s%s"%(password,time.time())) 
 
         # if user was not set by http authorization, try session lookup
         if not user:
@@ -1028,7 +1026,7 @@ class Client:
             if (config["WEB_CSRF_ENFORCE_HEADER_%s"%header] == 'required'
                     and "HTTP_%s"%header not in self.env):
                 logger.error(self._("csrf header %s required but missing for user%s."), header, current_user)
-                raise Unauthorised, self._("Missing header: %s")%header
+                raise Unauthorised(self._("Missing header: %s")%header)
                 
         # self.base always matches: ^https?://hostname
         enforce=config['WEB_CSRF_ENFORCE_HEADER_REFERER']
@@ -1039,7 +1037,7 @@ class Client:
             if foundat != 0:
                 if enforce in ('required', 'yes'):
                     logger.error(self._("csrf Referer header check failed for user%s. Value=%s"), current_user, referer)
-                    raise Unauthorised, self._("Invalid Referer %s, %s")%(referer,self.base)
+                    raise Unauthorised(self._("Invalid Referer %s, %s")%(referer,self.base))
                 elif enforce == 'logfailure':
                     logger.warning(self._("csrf Referer header check failed for user%s. Value=%s"), current_user, referer)
             else:
@@ -1055,7 +1053,7 @@ class Client:
             if foundat != 0:
                 if enforce in ('required', 'yes'):
                     logger.error(self._("csrf Origin header check failed for user%s. Value=%s"), current_user, origin)
-                    raise Unauthorised, self._("Invalid Origin %s"%origin)
+                    raise Unauthorised(self._("Invalid Origin %s"%origin))
                 elif enforce == 'logfailure':
                     logger.warning(self._("csrf Origin header check failed for user%s. Value=%s"), current_user, origin)
             else:
@@ -1070,7 +1068,7 @@ class Client:
                 if foundat not in [4, 5]:
                     if enforce in ('required', 'yes'):
                         logger.error(self._("csrf X-FORWARDED-HOST header check failed for user%s. Value=%s"), current_user, host)
-                        raise Unauthorised, self._("Invalid X-FORWARDED-HOST %s")%host
+                        raise Unauthorised(self._("Invalid X-FORWARDED-HOST %s")%host)
                     elif enforce == 'logfailure':
                         logger.warning(self._("csrf X-FORWARDED-HOST header check failed for user%s. Value=%s"), current_user, host)
                 else:
@@ -1090,7 +1088,7 @@ class Client:
                 if foundat not in [4, 5]:
                     if enforce in ('required', 'yes'):
                         logger.error(self._("csrf HOST header check failed for user%s. Value=%s"), current_user, host)
-                        raise Unauthorised, self._("Invalid HOST %s")%host
+                        raise Unauthorised(self._("Invalid HOST %s")%host)
                     elif enforce == 'logfailure':
                         logger.warning(self._("csrf HOST header check failed for user%s. Value=%s"), current_user, host)
                 else:
@@ -1099,7 +1097,7 @@ class Client:
         enforce=config['WEB_CSRF_HEADER_MIN_COUNT']
         if header_pass < enforce:
             logger.error(self._("Csrf: unable to verify sufficient headers"))
-            raise UsageError, self._("Unable to verify sufficient headers")
+            raise UsageError(self._("Unable to verify sufficient headers"))
 
         enforce=config['WEB_CSRF_ENFORCE_HEADER_X-REQUESTED-WITH']
         if xmlrpc:
@@ -1113,7 +1111,7 @@ class Client:
                 # see: https://www.owasp.org/index.php/Cross-Site_Request_Forgery_(CSRF)_Prevention_Cheat_Sheet#Protecting_REST_Services:_Use_of_Custom_Request_Headers
                 if 'HTTP_X-REQUESTED-WITH' not in self.env:
                     logger.error(self._("csrf X-REQUESTED-WITH xmlrpc required header check failed for user%s."), current_user)
-                    raise UsageError, self._("Required Header Missing")
+                    raise UsageError(self._("Required Header Missing"))
 
         # Expire old csrf tokens now so we don't use them.  These will
         # be committed after the otks.destroy below.  Note that the
@@ -1151,7 +1149,7 @@ class Client:
         if key is None: # we do not have an @csrf token
             if enforce == 'required':
                 logger.error(self._("Required csrf field missing for user%s"), current_user)
-                raise UsageError, self._("Csrf token is missing.")
+                raise UsageError(self._("Csrf token is missing."))
             elif enforce == 'logfailure':
                     # FIXME include url
                     logger.warning(self._("csrf field not supplied by user%s"), current_user)
@@ -1203,7 +1201,7 @@ class Client:
                 logger.error(
                     self._("Csrf mismatch user: current user %s != stored user %s, current session, stored session: %s,%s for key %s."),
                     current_user, nonce_user, current_session, nonce_session, key)
-                raise UsageError, self._("Invalid csrf token found: %s")%key
+                raise UsageError(self._("Invalid csrf token found: %s")%key)
             elif enforce == 'logfailure':
                 logger.warning(
                     self._("logged only: Csrf mismatch user: current user %s != stored user %s, current session, stored session: %s,%s for key %s."),
@@ -1213,7 +1211,7 @@ class Client:
                 logger.error(
                     self._("Csrf mismatch user: current session %s != stored session %s, current user/stored user is: %s for key %s."),
                     current_session, nonce_session, current_user, key)
-                raise UsageError, self._("Invalid csrf session found: %s")%key
+                raise UsageError(self._("Invalid csrf session found: %s")%key)
             elif enforce == 'logfailure':
                     logger.warning(
                         self._("logged only: Csrf mismatch user: current session %s != stored session %s, current user/stored user is: %s for key %s."),
@@ -1540,12 +1538,11 @@ class Client:
         to = [self.mailer.config.ADMIN_EMAIL]
         message = MIMEMultipart('alternative')
         self.mailer.set_message_attributes(message, to, subject)
-        part = MIMEBase('text', 'html')
-        part.set_charset('utf-8')
-        part.set_payload(html)
-        encode_quopri(part)
+        part = self.mailer.get_text_message('utf-8', 'html')
+        part.set_payload(html, part.get_charset())
         message.attach(part)
-        part = MIMEText(txt)
+        part = self.mailer.get_text_message()
+        part.set_payload(txt, part.get_charset())
         message.attach(part)
         self.mailer.smtp_send(to, message.as_string())
 
@@ -1685,7 +1682,10 @@ class Client:
                 # receive an error message, and the adminstrator will
                 # receive a traceback, albeit with less information
                 # than the one we tried to generate above.
-                raise exc_info[0], exc_info[1], exc_info[2]
+                if sys.version_info[0] > 2:
+                    raise exc_info[0](exc_info[1]).with_traceback(exc_info[2])
+                else:
+                    exec('raise exc_info[0], exc_info[1], exc_info[2]')
 
     # these are the actions that are available
     actions = (
@@ -1805,7 +1805,12 @@ class Client:
             # client doesn't care about content
             return
 
-        if self.charset != self.STORAGE_CHARSET:
+        if sys.version_info[0] > 2:
+            # An action setting appropriate headers for a non-HTML
+            # response may return a bytes object directly.
+            if not isinstance(content, bytes):
+                content = content.encode(self.charset, 'xmlcharrefreplace')
+        elif self.charset != self.STORAGE_CHARSET:
             # recode output
             content = content.decode(self.STORAGE_CHARSET, 'replace')
             content = content.encode(self.charset, 'xmlcharrefreplace')
@@ -2056,7 +2061,7 @@ class Client:
 
         headers = list(headers.items())
 
-        for ((path, name), (value, expire)) in self._cookies.iteritems():
+        for ((path, name), (value, expire)) in self._cookies.items():
             cookie = "%s=%s; Path=%s;"%(name, value, path)
             if expire is not None:
                 cookie += " expires=%s;"%get_cookie_date(expire)

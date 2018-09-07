@@ -28,6 +28,12 @@ described in `roundup.hyperdb.Database`.
 """
 __docformat__ = 'restructuredtext'
 
+try:
+    import builtins
+except ImportError:
+    import __builtin__ as builtins
+
+import collections
 import os
 import sys
 import warnings
@@ -80,7 +86,7 @@ used for the tracker.  Please read 'doc/upgrading.txt' to find out how to
 update your config.ini
 """
             try:
-                with file(filename) as backend_file:
+                with open(filename) as backend_file:
                     rdbms_backend = backend_file.readline().strip()
 
                 with warnings.catch_warnings():
@@ -128,14 +134,14 @@ update your config.ini
         if self.optimize:
             # execute preloaded schema object
             self._exec(self.schema, env)
-            if callable (self.schema_hook):
+            if isinstance(self.schema_hook, collections.Callable):
                 self.schema_hook(**env)
             # use preloaded detectors
             detectors = self.detectors
         else:
             # execute the schema file
             self._execfile('schema.py', env)
-            if callable (self.schema_hook):
+            if isinstance(self.schema_hook, collections.Callable):
                 self.schema_hook(**env)
             # reload extensions and detectors
             for extension in self.get_extensions('extensions'):
@@ -162,14 +168,13 @@ update your config.ini
             classes = db.getclasses()
             for classname in classes:
                 cl = db.getclass(classname)
-                for propname, prop in cl.getprops().iteritems():
+                for propname, prop in cl.getprops().items():
                     if not isinstance(prop, (hyperdb.Link,
                                              hyperdb.Multilink)):
                         continue
                     linkto = prop.classname
                     if linkto not in classes:
-                        raise ValueError, \
-                            ("property %s.%s links to non-existent class %s"
+                        raise ValueError("property %s.%s links to non-existent class %s"
                              % (classname, propname, linkto))
 
             db.post_init()
@@ -225,7 +230,7 @@ update your config.ini
 
     def _compile(self, fname):
         fname = os.path.join(self.tracker_home, fname)
-        return compile(file(fname).read(), fname, 'exec')
+        return compile(builtins.open(fname).read(), fname, 'exec')
 
     def _exec(self, obj, env):
         if self.libdir:
@@ -281,15 +286,15 @@ class OldStyleTrackers:
         import imp
         # sanity check existence of tracker home
         if not os.path.exists(tracker_home):
-            raise ValueError, 'no such directory: "%s"'%tracker_home
+            raise ValueError('no such directory: "%s"'%tracker_home)
 
         # sanity check tracker home contents
         for reqd in 'config dbinit select_db interfaces'.split():
             if not os.path.exists(os.path.join(tracker_home, '%s.py'%reqd)):
-                raise TrackerError, 'File "%s.py" missing from tracker '\
-                    'home "%s"'%(reqd, tracker_home)
+                raise TrackerError('File "%s.py" missing from tracker '\
+                    'home "%s"'%(reqd, tracker_home))
 
-        if self.trackers.has_key(tracker_home):
+        if tracker_home in self.trackers:
             return imp.load_package(self.trackers[tracker_home],
                 tracker_home)
         # register all available backend modules
@@ -304,8 +309,7 @@ class OldStyleTrackers:
         # ensure the tracker has all the required bits
         for required in 'open init Client MailGW'.split():
             if not hasattr(tracker, required):
-                raise TrackerError, \
-                    'Required tracker attribute "%s" missing'%required
+                raise TrackerError('Required tracker attribute "%s" missing'%required)
 
         # load and apply the config
         tracker.config = configuration.CoreConfig(tracker_home)

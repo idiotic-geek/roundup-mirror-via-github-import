@@ -20,37 +20,31 @@
 """
 __docformat__ = 'restructuredtext'
 
-import re, os, smtplib, socket, time, random
-import cStringIO, base64, mimetypes
+import re, os, smtplib, socket, time
+import base64, mimetypes
 import os.path
 import logging
-from email import Encoders
+from email import encoders
 from email.parser import FeedParser
-from email.Utils import formataddr
-from email.Header import Header
-from email.MIMEText import MIMEText
-from email.MIMEBase import MIMEBase
-from email.MIMEMultipart import MIMEMultipart
+from email.utils import formataddr
+from email.header import Header
+from email.mime.text import MIMEText
+from email.mime.base import MIMEBase
+from email.mime.multipart import MIMEMultipart
 
 from roundup import password, date, hyperdb
 from roundup.i18n import _
 from roundup.hyperdb import iter_roles
 
-from roundup.mailer import Mailer, MessageSendError, encode_quopri, \
-    nice_sender_header
+from roundup.mailer import Mailer, MessageSendError, nice_sender_header
+
+from roundup.anypy.strings import b2s, s2u
+import roundup.anypy.random_ as random_
 
 try:
-    import pyme, pyme.core
-    # gpgme_check_version() must have been called once in a programm
-    # to initialise some subsystems of gpgme.
-    # See the gpgme documentation (at least from v1.1.6 to 1.3.1, e.g.
-    # http://gnupg.org/documentation/manuals/gpgme/Library-Version-Check.html)
-    # This is not done by pyme (at least v0.7.0 - 0.8.1). So we do it here.
-    # FIXME: Make sure it is done only once (the gpgme documentation does
-    # not tell if calling this several times has drawbacks).
-    pyme.core.check_version(None)
+    import gpg, gpg.core
 except ImportError:
-    pyme = None
+    gpg = None
 
 
 class Database:
@@ -313,7 +307,7 @@ class IssueClass:
                             'View', userid, 'msg', prop, msgid)
             return (userid and
                     (self.db.user.get(userid, 'username') != 'anonymous') and
-                    allowed and not seen_message.has_key(userid))
+                    allowed and userid not in seen_message)
 
         # possibly send the message to the author, as long as they aren't
         # anonymous
@@ -372,9 +366,9 @@ class IssueClass:
         """ Encrypt given message to sendto receivers.
             Returns a new RFC 3156 conforming message.
         """
-        plain = pyme.core.Data(message.as_string())
-        cipher = pyme.core.Data()
-        ctx = pyme.core.Context()
+        plain = gpg.core.Data(message.as_string())
+        cipher = gpg.core.Data()
+        ctx = gpg.core.Context()
         ctx.set_armor(1)
         keys = []
         for adr in sendto:
@@ -385,7 +379,7 @@ class IssueClass:
                 keys.append(k)
             else:
                 msg = _('No key for "%(adr)s" in keyring')%locals()
-                raise MessageSendError, msg
+                raise MessageSendError(msg)
             ctx.op_keylist_end()
         ctx.op_encrypt(keys, 1, plain, cipher)
         cipher.seek(0,0)
@@ -419,9 +413,9 @@ class IssueClass:
         if not messageid:
             # this is an old message that didn't get a messageid, so
             # create one
-            messageid = "<%s.%s.%s%s@%s>"%(time.time(), random.random(),
-                                           self.classname, issueid,
-                                           self.db.config.MAIL_DOMAIN)
+            messageid = "<%s.%s.%s%s@%s>"%(time.time(),
+                b2s(base64.b32encode(random_.token_bytes(10))),
+                self.classname, issueid, self.db.config['MAIL_DOMAIN'])
             if msgid is not None:
                 messages.set(msgid, messageid=messageid)
 
@@ -494,7 +488,7 @@ class IssueClass:
         charset = getattr(self.db.config, 'EMAIL_CHARSET', 'utf-8')
 
         # construct the content and convert to unicode object
-        body = unicode('\n'.join(m), 'utf-8').encode(charset)
+        body = s2u('\n'.join(m))
 
         # make sure the To line is always the same (for testing mostly)
         sendto.sort()
@@ -520,7 +514,7 @@ class IssueClass:
             sendto = [sendto]
 
         # tracker sender info
-        tracker_name = unicode(self.db.config.TRACKER_NAME, 'utf-8')
+        tracker_name = s2u(self.db.config.TRACKER_NAME)
         tracker_name = nice_sender_header(tracker_name, from_address,
             charset)
 
@@ -586,7 +580,8 @@ class IssueClass:
                 values = ', '.join(values)
                 header = "X-Roundup-%s-%s"%(self.classname, propname)
                 try:
-                    message[header] = values.encode('ascii')
+                    values.encode('ascii')
+                    message[header] = values
                 except UnicodeError:
                     message[header] = Header(values, charset)
 
@@ -604,28 +599,31 @@ class IssueClass:
             # attach files
             if message_files:
                 # first up the text as a part
-                part = MIMEText(body)
-                part.set_charset(charset)
-                encode_quopri(part)
+                part = mailer.get_standard_message()
+                part.set_payload(body, part.get_charset())
                 message.attach(part)
 
                 for fileid in message_files:
                     name = files.get(fileid, 'name')
-                    mime_type = files.get(fileid, 'type')
-                    content = files.get(fileid, 'content')
+                    mime_type = (files.get(fileid, 'type') or
+                                 mimetypes.guess_type(name)[0] or
+                                 'application/octet-stream')
                     if mime_type == 'text/plain':
+                        content = files.get(fileid, 'content')
+                        part = MIMEText('')
+                        del part['Content-Transfer-Encoding']
                         try:
-                            content.decode('ascii')
+                            enc = content.encode('ascii')
+                            part = mailer.get_text_message('us-ascii')
+                            part.set_payload(enc)
                         except UnicodeError:
                             # the content cannot be 7bit-encoded.
                             # use quoted printable
                             # XXX stuffed if we know the charset though :(
-                            part = MIMEText(content)
-                            encode_quopri(part)
-                        else:
-                            part = MIMEText(content)
-                            part['Content-Transfer-Encoding'] = '7bit'
+                            part = mailer.get_text_message('utf-8')
+                            part.set_payload(content, part.get_charset())
                     elif mime_type == 'message/rfc822':
+                        content = files.get(fileid, 'content')
                         main, sub = mime_type.split('/')
                         p = FeedParser()
                         p.feed(content)
@@ -633,22 +631,17 @@ class IssueClass:
                         part.set_payload([p.close()])
                     else:
                         # some other type, so encode it
-                        if not mime_type:
-                            # this should have been done when the file was saved
-                            mime_type = mimetypes.guess_type(name)[0]
-                        if mime_type is None:
-                            mime_type = 'application/octet-stream'
+                        content = files.get(fileid, 'binary_content')
                         main, sub = mime_type.split('/')
                         part = MIMEBase(main, sub)
                         part.set_payload(content)
-                        Encoders.encode_base64(part)
+                        encoders.encode_base64(part)
                     cd = 'Content-Disposition'
                     part[cd] = 'attachment;\n filename="%s"'%name
                     message.attach(part)
 
             else:
-                message.set_payload(body)
-                encode_quopri(message)
+                message.set_payload(body, message.get_charset())
 
             if crypt:
                 send_msg = self.encrypt_to (message, sendto)
@@ -710,8 +703,7 @@ class IssueClass:
 
         # list the values
         m = []
-        prop_items = props.items()
-        prop_items.sort()
+        prop_items = sorted(props.items())
         for propname, prop in prop_items:
             # Omit quiet properties from history/changelog
             if prop.quiet:
@@ -784,8 +776,7 @@ class IssueClass:
 
         # list the changes
         m = []
-        changed_items = changed.items()
-        changed_items.sort()
+        changed_items = sorted(changed.items())
         for propname, oldvalue in changed_items:
             prop = props[propname]
             # Omit quiet properties from history/changelog

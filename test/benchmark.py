@@ -1,10 +1,11 @@
+from __future__ import print_function
 import sys, os, time
 
 from roundup.hyperdb import String, Password, Link, Multilink, Date, \
     Interval, DatabaseError, Boolean, Number
 from roundup import date, password
 
-from db_test_base import config
+from .db_test_base import config
 
 def setupSchema(db, module):
     status = module.Class(db, "status", name=String())
@@ -52,8 +53,8 @@ def main(backendname, time=time.time, numissues=10):
                 db.issue.set(str(i+1), status='2', assignedto='2', nosy=[])
                 db.issue.set(str(i+1), status='1', assignedto='1',
                     nosy=['1','2'])
-            if (i*100/numissues) != pc:
-                pc = (i*100/numissues)
+            if (i*100//numissues) != pc:
+                pc = (i*100//numissues)
                 sys.stdout.write("%d%%\r"%pc)
                 sys.stdout.flush()
             db.commit()
@@ -114,13 +115,13 @@ def main(backendname, time=time.time, numissues=10):
         else:
             sys.stdout.write(' %-6.2f'%(stamp-last))
         last = stamp
-    print ' %-6.2f'%(last-first)
+    print(' %-6.2f'%(last-first))
     sys.stdout.flush()
 
 if __name__ == '__main__':
     #      0         1         2         3         4         5         6
     #      01234567890123456789012345678901234567890123456789012345678901234
-    print 'Test name       fetch  journl jprops lookup filter filtml TOTAL '
+    print('Test name       fetch  journl jprops lookup filter filtml TOTAL ')
     for name in 'anydbm metakit sqlite'.split():
         main(name)
     for name in 'anydbm metakit sqlite'.split():

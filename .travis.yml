@@ -1,30 +1,71 @@
 language: python
 python:
   - 2.7
+  - 3.4
+  - 3.5
+  - 3.6
 
 sudo: false
 
 addons:
   apt:
+    sources:
+      - sourceline: ppa:xapian-backports/ppa
+
     packages:
       # Required to build/install the xapian-binding
       - libxapian-dev
-      # Required to install pyme
-      - libgpgme11-dev
+      # Required to install gpg
       - swig
+      # Required to build gpgme.
+      - gpgsm
 
 before_install:
+  # Sphinx required to build the xapian python bindings
+  - pip install sphinx
+  - XAPIAN_VER=$(dpkg -l libxapian-dev | tail -n 1 | awk '{print $3}' | cut -d '-' -f 1)
   - cd /tmp
-  - curl -s -O https://oligarchy.co.uk/xapian/1.2.16/xapian-bindings-1.2.16.tar.xz
-  - tar -Jxvf xapian-bindings-1.2.16.tar.xz
-  - cd xapian-bindings-1.2.16/
-  - ./configure --prefix=$VIRTUAL_ENV --with-python && make && make install
+  - curl -s -O https://oligarchy.co.uk/xapian/$XAPIAN_VER/xapian-bindings-$XAPIAN_VER.tar.xz
+  - tar -Jxvf xapian-bindings-$XAPIAN_VER.tar.xz
+  - cd xapian-bindings-$XAPIAN_VER/
+  - if [[ $TRAVIS_PYTHON_VERSION == "2."* ]]; then ./configure --prefix=$VIRTUAL_ENV --with-python; fi
+  - if [[ $TRAVIS_PYTHON_VERSION == "3."* ]]; then ./configure --prefix=$VIRTUAL_ENV --with-python3; fi
+  - make && make install
+
+  - PATH=$VIRTUAL_ENV/bin:$PATH
+
+  # libgpg-error
+  - LIBGPG_ERROR_VERSION=1.32
+  - cd /tmp
+  - curl -s -O https://www.gnupg.org/ftp/gcrypt/libgpg-error/libgpg-error-$LIBGPG_ERROR_VERSION.tar.bz2
+  - tar -jxvf libgpg-error-$LIBGPG_ERROR_VERSION.tar.bz2
+  - cd libgpg-error-$LIBGPG_ERROR_VERSION
+  - ./configure --prefix=$VIRTUAL_ENV
+  - make && make install
+
+  # libassuan
+  - LIBASSUAN_VERSION=2.5.1
+  - cd /tmp
+  - curl -s -O https://www.gnupg.org/ftp/gcrypt/libassuan/libassuan-$LIBASSUAN_VERSION.tar.bz2
+  - tar -jxvf libassuan-$LIBASSUAN_VERSION.tar.bz2
+  - cd libassuan-$LIBASSUAN_VERSION
+  - ./configure --prefix=$VIRTUAL_ENV
+  - make && make install
+
+  # gpgme
+  - GPGME_VERSION=1.11.1
+  - cd /tmp
+  - curl -s -O https://www.gnupg.org/ftp/gcrypt/gpgme/gpgme-$GPGME_VERSION.tar.bz2
+  - tar -jxvf gpgme-$GPGME_VERSION.tar.bz2
+  - cd gpgme-$GPGME_VERSION
+  - ./configure --prefix=$VIRTUAL_ENV
+  - make && make install
 
   # change back to the checked out repository directory
   - cd $TRAVIS_BUILD_DIR
 
 install:
-  - pip install MySQL-python psycopg2 pytz pyme whoosh
+  - pip install gpg mysqlclient psycopg2 pytz whoosh
   - pip install pytest-cov codecov
 
 before_script:
@@ -39,6 +80,8 @@ before_script:
   - sed -i 's/CREATE DATABASE \%s/CREATE DATABASE \%s COLLATE utf8_general_ci/' roundup/backends/back_mysql.py
 
 script:
+  - PATH=$VIRTUAL_ENV/bin:$PATH
+  - export LD_LIBRARY_PATH=$VIRTUAL_ENV/lib:$LD_LIBRARY_PATH
   - py.test -v test/ --cov=roundup
 
 after_success:

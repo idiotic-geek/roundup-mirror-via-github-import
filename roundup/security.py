@@ -155,18 +155,21 @@ class Permission:
             self.klass, self.properties, self.check,
             self.limit_perm_to_props_only)
 
-    def __cmp__(self, other):
+    def __eq__(self, other):
         if self.name != other.name:
-            return cmp(self.name, other.name)
+            return False
 
-        if self.klass != other.klass: return 1
-        if self.properties != other.properties: return 1
-        if self.check != other.check: return 1
+        if self.klass != other.klass: return False
+        if self.properties != other.properties: return False
+        if self.check != other.check: return False
         if self.limit_perm_to_props_only != \
-             other.limit_perm_to_props_only: return 1
+             other.limit_perm_to_props_only: return False
 
         # match
-        return 0
+        return True
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
 
     def __getitem__(self,index):
         return (self.name, self.klass, self.properties, self.check,
@@ -226,13 +229,13 @@ class Security:
             Raise ValueError if there is no exact match.
         '''
         if permission not in self.permission:
-            raise ValueError, 'No permission "%s" defined'%permission
+            raise ValueError('No permission "%s" defined'%permission)
 
         if classname:
             try:
                 self.db.getclass(classname)
             except KeyError:
-                raise ValueError, 'No class "%s" defined'%classname
+                raise ValueError('No class "%s" defined'%classname)
 
         # look through all the permissions of the given name
         tester = Permission(permission, klass=classname, properties=properties,
@@ -241,8 +244,8 @@ class Security:
         for perm in self.permission[permission]:
             if perm == tester:
                 return perm
-        raise ValueError, 'No permission "%s" defined for "%s"'%(permission,
-            classname)
+        raise ValueError('No permission "%s" defined for "%s"'%(permission,
+            classname))
 
     def hasPermission(self, permission, userid, classname=None,
             property=None, itemid=None):
@@ -275,7 +278,7 @@ class Security:
 
         '''
         if itemid and classname is None:
-            raise ValueError, 'classname must accompany itemid'
+            raise ValueError('classname must accompany itemid')
         for rolename in self.db.user.get_roles(userid):
             if not rolename or (rolename not in self.role):
                 continue
@@ -329,7 +332,7 @@ class Security:
                 except KeyError:
                     return 0
                 props = dict.fromkeys(('id', cls.labelprop(), cls.orderprop()))
-                for p in props.iterkeys():
+                for p in props.keys():
                     for perm in perms:
                         if perm.searchable(prop.classname, p):
                             break
@@ -413,7 +416,7 @@ class Security:
     def filterFilterspec(self, userid, classname, filterspec):
         """ Return a filterspec that has all non-allowed properties removed.
         """
-        return dict ([(k, v) for k, v in filterspec.iteritems()
+        return dict ([(k, v) for k, v in filterspec.items()
             if self.hasSearchPermission(userid,classname,k)])
 
     def filterSortspec(self, userid, classname, sort):

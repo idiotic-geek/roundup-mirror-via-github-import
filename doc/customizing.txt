@@ -415,7 +415,7 @@ Section **pgp**
  OpenPGP mail processing options
 
  enable -- ``no``
-  Enable PGP processing. Requires pyme.
+  Enable PGP processing. Requires gpg.
 
  roles -- default *blank*
   If specified, a comma-separated list of roles to perform PGP
@@ -2338,9 +2338,6 @@ The following variables are available to templates.
     resulting message (some languages have more than two plural forms).
     If no translation is found, return singular if *number* is 1;
     return plural otherwise.
-
-    This function requires python2.3; in earlier python versions
-    may not work as expected.
 
 The context variable
 ~~~~~~~~~~~~~~~~~~~~

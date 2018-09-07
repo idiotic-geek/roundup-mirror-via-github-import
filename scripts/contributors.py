@@ -7,6 +7,7 @@ Public domain work by:
 
 """
 
+from __future__ import print_function
 from subprocess import check_output
 
 # --- output settings
@@ -136,19 +137,16 @@ if __name__ == '__main__':
       """Return year of the first contribution"""
       return sorted(list(names[name]))[0]
 
-    def year_cmp(name1, name2):
+    def year_key(name):
       """
-      Year comparison function. First sort by latest contribution year (desc).
+      Year key function. First sort by latest contribution year (desc).
       If it matches, compare first contribution year (asc). This ensures that
       the most recent and long-term contributors are at the top.
       """
-      if last_year(name1) != last_year(name2):
-        return last_year(name1) - last_year(name2)
-      else:
-        return first_year(name2) - first_year(name1)
+      return (last_year(name), -first_year(name))
     
     print("Copyright (c)")
-    for author in sorted(list(names), cmp=year_cmp, reverse=True):
+    for author in sorted(list(names), key=year_key, reverse=True):
       years = list(names[author])
       yearstr = compress(years)
 

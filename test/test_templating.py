@@ -1,8 +1,9 @@
+from __future__ import print_function
 import unittest
 from cgi import FieldStorage, MiniFieldStorage
 
 from roundup.cgi.templating import *
-from test_actions import MockNull, true
+from .test_actions import MockNull, true
 
 class MockDatabase(MockNull):
     def getclass(self, name):
@@ -71,7 +72,7 @@ class FunctionsTestCase(TemplatingTestCase):
             if key == 'ok':
                 return '1'
             if key == 'fail':
-                raise KeyError, 'fail'
+                raise KeyError('fail')
             return key
         db._db.classes = {'issue': MockNull(lookup=lookup)}
         prop = MockNull(classname='issue')
@@ -148,11 +149,11 @@ class HTMLClassTestCase(TemplatingTestCase) :
         otks=self.client.db.getOTKManager()
 
         for test in [ 'module', 'template', 'default_time' ]:
-            print "Testing:", test
+            print("Testing:", test)
             
             if test == 'module':
                 # test the module function
-                nonce1 = anti_csrf_nonce(self, self.client, lifetime=1)
+                nonce1 = anti_csrf_nonce(self.client, lifetime=1)
                 # lifetime * 60 is the offset
                 greater_than = week_seconds - 1 * 60
             elif test == 'template':
@@ -162,7 +163,7 @@ class HTMLClassTestCase(TemplatingTestCase) :
                 greater_than = week_seconds - 5 * 60
             elif test == 'default_time':
                 # use the module function but with no lifetime
-                nonce1 = anti_csrf_nonce(self, self.client)
+                nonce1 = anti_csrf_nonce(self.client)
                 # see above for web nonce lifetime.
                 greater_than = week_seconds - 10 * 60
 
@@ -177,8 +178,8 @@ class HTMLClassTestCase(TemplatingTestCase) :
 
             now = time.time()
 
-            print "now, timestamp, greater, difference", \
-                     now, timestamp, greater_than, now - timestamp
+            print("now, timestamp, greater, difference",
+                  now, timestamp, greater_than, now - timestamp)
 
         
             # lower bound of the difference is above. Upper bound
@@ -211,7 +212,7 @@ class HTMLClassTestCase(TemplatingTestCase) :
 
     def test_string_field(self):
         p = StringHTMLProperty(self.client, 'test', '1', None, 'test', 'A string <b> with rouilj@example.com embedded &lt; html</b>')
-        self.assertEqual(p.field(), '<input type="text" name="test1@test" value="A string &lt;b&gt; with rouilj@example.com embedded &amp;lt; html&lt;/b&gt;" size="30">')
+        self.assertEqual(p.field(), '<input name="test1@test" size="30" type="text" value="A string &lt;b&gt; with rouilj@example.com embedded &amp;lt; html&lt;/b&gt;">')
 
     def test_string_multiline(self):
         p = StringHTMLProperty(self.client, 'test', '1', None, 'test', 'A string <b> with rouilj@example.com embedded &lt; html</b>')
@@ -353,7 +354,12 @@ class HTMLProperty(HTMLInputMixin, HTMLPermissions):
     def __init__(self, client, classname, nodeid, prop, name, value,
     def __repr__(self):
     def __str__(self):
-    def __cmp__(self, other):
+    def __lt__(self, other):
+    def __le__(self, other):
+    def __eq__(self, other):
+    def __ne__(self, other):
+    def __gt__(self, other):
+    def __ge__(self, other):
     def is_edit_ok(self):
     def is_view_ok(self):
 
@@ -417,8 +423,8 @@ class MultilinkHTMLProperty(HTMLProperty):
     def field(self, size=30, showid=0):
     def menu(self, size=None, height=None, showid=0, additional=[],
 
-def make_sort_function(db, classname, sort_on=None):
-    def sortfunc(a, b):
+def make_key_function(db, classname, sort_on=None):
+    def keyfunc(a):
 
 def find_sort_key(linkcl):
 

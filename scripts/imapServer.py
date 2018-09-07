@@ -30,6 +30,7 @@ It also connects to a secure IMAP server. The main reasons for this script are:
   Add an option for changing the uid/gid of the running process.
 """
 
+from __future__ import print_function
 import getpass
 import logging
 import imaplib
@@ -37,6 +38,8 @@ import optparse
 import os
 import re
 import time
+
+from roundup.anypy.my_input import my_input
 
 logging.basicConfig()
 log = logging.getLogger('roundup.IMAPServer')
@@ -58,36 +61,36 @@ class RoundupMailbox:
 
         try:
             if not self.dbhome:
-                self.dbhome = raw_input('Tracker home: ')
+                self.dbhome = my_input('Tracker home: ')
                 if not os.path.exists(self.dbhome):
-                    raise ValueError, 'Invalid home address: ' \
-                        'directory "%s" does not exist.' % self.dbhome
+                    raise ValueError('Invalid home address: ' \
+                        'directory "%s" does not exist.' % self.dbhome)
 
             if not self.server:
-                self.server = raw_input('Server: ')
+                self.server = my_input('Server: ')
                 if not self.server:
-                    raise ValueError, 'No Servername supplied'
-                protocol = raw_input('protocol [imaps]? ')
+                    raise ValueError('No Servername supplied')
+                protocol = my_input('protocol [imaps]? ')
                 self.protocol = protocol
 
             if not self.username:
-                self.username = raw_input('Username: ')
+                self.username = my_input('Username: ')
                 if not self.username:
-                    raise ValueError, 'Invalid Username'
+                    raise ValueError('Invalid Username')
 
             if not self.password:
-                print 'For server %s, user %s' % (self.server, self.username)
+                print('For server %s, user %s' % (self.server, self.username))
                 self.password = getpass.getpass()
                 # password can be empty because it could be superceeded
                 # by a later entry
 
             #if self.mailbox is None:
-            #   self.mailbox = raw_input('Mailbox [INBOX]: ')
+            #   self.mailbox = my_input('Mailbox [INBOX]: ')
             #   # We allow an empty mailbox because that will
             #   # select the INBOX, whatever it is called
 
         except (KeyboardInterrupt, EOFError):
-            raise ValueError, 'Canceled by User'
+            raise ValueError('Canceled by User')
 
     def __str__(self):
         return 'Mailbox{ server:%(server)s, protocol:%(protocol)s, ' \
@@ -136,20 +139,20 @@ class IMAPServer:
         each mailbox is associated with 1 database home
         """
         log.info('Adding mailbox %s', mailbox)
-        if not self.mailboxes.has_key(mailbox.server):
+        if mailbox.server not in self.mailboxes:
             self.mailboxes[mailbox.server] = {'protocol':'imaps', 'users':{}}
         server = self.mailboxes[mailbox.server]
         if mailbox.protocol:
             server['protocol'] = mailbox.protocol
 
-        if not server['users'].has_key(mailbox.username):
+        if mailbox.username not in server['users']:
             server['users'][mailbox.username] = {'password':'', 'mailboxes':{}}
         user = server['users'][mailbox.username]
         if mailbox.password:
             user['password'] = mailbox.password
 
-        if user['mailboxes'].has_key(mailbox.mailbox):
-            raise ValueError, 'Mailbox is already defined'
+        if mailbox.mailbox in user['mailboxes']:
+            raise ValueError('Mailbox is already defined')
 
         user['mailboxes'][mailbox.mailbox] = mailbox.dbhome
 
@@ -190,7 +193,7 @@ class IMAPServer:
                     elif protocol == 'imap':
                         serv = imaplib.IMAP4(server)
                     else:
-                        raise ValueError, 'Unknown protocol %s' % protocol
+                        raise ValueError('Unknown protocol %s' % protocol)
 
                     password = u_vals['password']
 

@@ -12,25 +12,26 @@
 # TODO: test bcc
 
 import email
-import gpgmelib
+from . import gpgmelib
 import unittest, tempfile, os, shutil, errno, imp, sys, difflib, time
 
 import pytest
 
 try:
-    import pyme, pyme.core
+    import gpg, gpg.core
     skip_pgp = lambda func, *args, **kwargs: func
 except ImportError:
     # FIX: workaround for a bug in pytest.mark.skip():
     #   https://github.com/pytest-dev/pytest/issues/568
     from .pytest_patcher import mark_class
     skip_pgp = mark_class(pytest.mark.skip(
-        reason="Skipping PGP tests: 'pyme' not installed"))
+        reason="Skipping PGP tests: 'gpg' not installed"))
 
 
-from cStringIO import StringIO
+from roundup.anypy.email_ import message_from_bytes
+from roundup.anypy.strings import StringIO, b2s, u2s
 
-if not os.environ.has_key('SENDMAILDEBUG'):
+if 'SENDMAILDEBUG' not in os.environ:
     os.environ['SENDMAILDEBUG'] = 'mail-test.log'
 SENDMAILDEBUG = os.environ['SENDMAILDEBUG']
 
@@ -40,7 +41,8 @@ from roundup.mailgw import MailGW, Unauthorized, uidFromAddress, \
 from roundup import init, instance, password, __version__
 
 #import db_test_base
-import memorydb
+from . import memorydb
+from .cmp_helper import StringFragmentCmpHelper
 
 def expectedFailure(method):
     """ For marking a failing test.
@@ -54,6 +56,9 @@ def get_body(message):
         return message.get_payload()
 
     return message.as_string().split('\n\n', 1)[-1]
+
+def unfold(lst):
+    return [l.replace('\n', '') for l in lst]
 
 
 class Tracker(object):
@@ -130,7 +135,7 @@ class DiffHelper:
                         res.append('content-type mime type headers differ new vs. reference: %r != %r'%(newmimetype, oldmimetype))
                     replace ['--' + newmimeboundary] = '--' + oldmimeboundary
                     replace ['--' + newmimeboundary + '--'] = '--' + oldmimeboundary + '--'
-                elif new.get_all(key, '') != old.get_all(key, ''):
+                elif unfold(new.get_all(key, '')) != unfold(old.get_all(key, '')):
                     # check that all other headers are identical, including
                     # headers that appear more than once.
                     res.append('  %s: %r != %r' % (key, old.get_all(key, ''),
@@ -145,7 +150,7 @@ class DiffHelper:
 
             if res:
                 res.insert(0, 'Generated message not correct (diff follows, expected vs. actual):')
-                raise AssertionError, '\n'.join(res)
+                raise AssertionError('\n'.join(res))
 
     def compareStrings(self, s2, s1, replace={}):
         '''Note the reversal of s2 and s1 - difflib.SequenceMatcher wants
@@ -289,7 +294,7 @@ Subject: [issue] Testing...
         self.assertEqual(self.db.issue.get(nodeid, 'tx_Source'), 'email')
 
 
-class MailgwTestCase(MailgwTestAbstractBase, unittest.TestCase):
+class MailgwTestCase(MailgwTestAbstractBase, StringFragmentCmpHelper, unittest.TestCase):
 
     def testTextHtmlMessage(self):
         html_message='''Content-Type: text/html;
@@ -347,12 +352,14 @@ have to install the win32all package separately (get it from
 </div>
 </body>
 '''
+        text_fragments = ['Roundup\n        Home\nDownload\nDocs\nRoundup Features\nInstalling Roundup\nUpgrading to newer versions of Roundup\nRoundup FAQ\nUser Guide\nCustomising Roundup\nAdministration Guide\nPrerequisites\n\nRoundup requires Python 2.6 or newer (but not Python 3) with a functioning\nanydbm module. Download the latest version from http://www.python.org/.\nIt is highly recommended that users install the latest patch version\nof python as these contain many fixes to serious bugs.\n\nSome variants of Linux will need an additional ', ('python dev', u2s(u'\u201cpython dev\u201d')), ' package\ninstalled for Roundup installation to work. Debian and derivatives, are\nknown to require this.\n\nIf you', (u2s(u'\u2019'), ''), 're on windows, you will either need to be using the ActiveState python\ndistribution (at http://www.activestate.com/Products/ActivePython/), or you', (u2s(u'\u2019'), ''), 'll\nhave to install the win32all package separately (get it from\nhttp://starship.python.net/crew/mhammond/win32/).']
 
         self.db.config.MAILGW_CONVERT_HTMLTOTEXT = "dehtml"
         nodeid = self._handle_mail(html_message)
         assert not os.path.exists(SENDMAILDEBUG)
         msgid = self.db.issue.get(nodeid, 'messages')[0]
-        self.assertEqual(self.db.msg.get(msgid, 'content'), '''Roundup\n        Home\nDownload\nDocs\nRoundup Features\nInstalling Roundup\nUpgrading to newer versions of Roundup\nRoundup FAQ\nUser Guide\nCustomising Roundup\nAdministration Guide\nPrerequisites\n\nRoundup requires Python 2.6 or newer (but not Python 3) with a functioning\nanydbm module. Download the latest version from http://www.python.org/.\nIt is highly recommended that users install the latest patch version\nof python as these contain many fixes to serious bugs.\n\nSome variants of Linux will need an additional python dev package\ninstalled for Roundup installation to work. Debian and derivatives, are\nknown to require this.\n\nIf youre on windows, you will either need to be using the ActiveState python\ndistribution (at http://www.activestate.com/Products/ActivePython/), or youll\nhave to install the win32all package separately (get it from\nhttp://starship.python.net/crew/mhammond/win32/).''')
+        self.compareStringFragments(self.db.msg.get(msgid, 'content'),
+                                    text_fragments)
 
         self.db.config.MAILGW_CONVERT_HTMLTOTEXT = "none"
         self.assertRaises(MailUsageError, self._handle_mail, html_message)
@@ -894,7 +901,7 @@ This ist a message without attachment
         self.assertEqual(msg.content, 'test attachment second text/plain')
 
     def testMultipartCharsetUTF8NoAttach(self):
-        c = 'umlaut \xc3\xa4\xc3\xb6\xc3\xbc\xc3\x84\xc3\x96\xc3\x9c\xc3\x9f'
+        c = b2s(b'umlaut \xc3\xa4\xc3\xb6\xc3\xbc\xc3\x84\xc3\x96\xc3\x9c\xc3\x9f')
         self.doNewIssue()
         self.db.config.NOSY_MAX_ATTACHMENT_SIZE = 0
         self._handle_mail(self.multipart_msg_latin1)
@@ -944,7 +951,7 @@ _______________________________________________________________________
 ''')
 
     def testMultipartCharsetLatin1NoAttach(self):
-        c = 'umlaut \xc3\xa4\xc3\xb6\xc3\xbc\xc3\x84\xc3\x96\xc3\x9c\xc3\x9f'
+        c = b2s(b'umlaut \xc3\xa4\xc3\xb6\xc3\xbc\xc3\x84\xc3\x96\xc3\x9c\xc3\x9f')
         self.doNewIssue()
         self.db.config.NOSY_MAX_ATTACHMENT_SIZE = 0
         self.db.config.MAIL_CHARSET = 'iso-8859-1'
@@ -995,7 +1002,7 @@ _______________________________________________________________________
 ''')
 
     def testMultipartCharsetUTF8AttachFile(self):
-        c = 'umlaut \xc3\xa4\xc3\xb6\xc3\xbc\xc3\x84\xc3\x96\xc3\x9c\xc3\x9f'
+        c = b2s(b'umlaut \xc3\xa4\xc3\xb6\xc3\xbc\xc3\x84\xc3\x96\xc3\x9c\xc3\x9f')
         self.doNewIssue()
         self._handle_mail(self.multipart_msg_latin1)
         messages = self.db.issue.get('1', 'messages')
@@ -1057,7 +1064,7 @@ PGh0bWw+dW1sYXV0IMOkw7bDvMOEw5bDnMOfPC9odG1sPgo=
 ''')
 
     def testMultipartCharsetLatin1AttachFile(self):
-        c = 'umlaut \xc3\xa4\xc3\xb6\xc3\xbc\xc3\x84\xc3\x96\xc3\x9c\xc3\x9f'
+        c = b2s(b'umlaut \xc3\xa4\xc3\xb6\xc3\xbc\xc3\x84\xc3\x96\xc3\x9c\xc3\x9f')
         self.doNewIssue()
         self.db.config.MAIL_CHARSET = 'iso-8859-1'
         self._handle_mail(self.multipart_msg_latin1)
@@ -1274,7 +1281,7 @@ Content-Transfer-Encoding: quoted-printable
 '''%html_doc
 
     def testMultipartTextifyHTML(self):
-        mycontent='''Roundup\n        Home\nDownload\nDocs\nRoundup Features\nInstalling Roundup\nUpgrading to newer versions of Roundup\nRoundup FAQ\nUser Guide\nCustomising Roundup\nAdministration Guide\nPrerequisites\n\nRoundup requires Python 2.5 or newer (but not Python 3) with a functioning\nanydbm module. Download the latest version from http://www.python.org/.\nIt is highly recommended that users install the latest patch version\nof python as these contain many fixes to serious bugs.\n\nSome variants of Linux will need an additional python dev package\ninstalled for Roundup installation to work. Debian and derivatives, are\nknown to require this.\n\nIf youre on windows, you will either need to be using the ActiveState python\ndistribution (at http://www.activestate.com/Products/ActivePython/), or youll\nhave to install the win32all package separately (get it from\nhttp://starship.python.net/crew/mhammond/win32/).\n\numlaut'''
+        text_fragments = ['Roundup\n        Home\nDownload\nDocs\nRoundup Features\nInstalling Roundup\nUpgrading to newer versions of Roundup\nRoundup FAQ\nUser Guide\nCustomising Roundup\nAdministration Guide\nPrerequisites\n\nRoundup requires Python 2.5 or newer (but not Python 3) with a functioning\nanydbm module. Download the latest version from http://www.python.org/.\nIt is highly recommended that users install the latest patch version\nof python as these contain many fixes to serious bugs.\n\nSome variants of Linux will need an additional ', ('python dev', u2s(u'\u201cpython dev\u201d')), ' package\ninstalled for Roundup installation to work. Debian and derivatives, are\nknown to require this.\n\nIf you', (u2s(u'\u2019'), ''), 're on windows, you will either need to be using the ActiveState python\ndistribution (at http://www.activestate.com/Products/ActivePython/), or you', (u2s(u'\u2019'), ''), 'll\nhave to install the win32all package separately (get it from\nhttp://starship.python.net/crew/mhammond/win32/).\n\numlaut']
 
 #  \xc3\xa4\xc3\xb6\xc3\xbc\xc3\x84\xc3\x96\xc3\x9c\xc3\x9f
 # append above with leading space to end of mycontent. It is the 
@@ -1287,7 +1294,8 @@ Content-Transfer-Encoding: quoted-printable
         messages.sort()
         msg = self.db.msg.getnode(messages[-1])
         # html converted to utf-8 text
-        self.assertEqual(msg.content, mycontent+" \xc3\xa4\xc3\xb6\xc3\xbc\xc3\x84\xc3\x96\xc3\x9c\xc3\x9f")
+        self.compareStringFragments(msg.content,
+                                    text_fragments + [b2s(b" \xc3\xa4\xc3\xb6\xc3\xbc\xc3\x84\xc3\x96\xc3\x9c\xc3\x9f")])
         self.assertEqual(msg.type, None)
         self.assertEqual(len(msg.files), 2)
         name = "unnamed" # no name for any files
@@ -1295,14 +1303,20 @@ Content-Transfer-Encoding: quoted-printable
         # replace quoted printable string at end of html document
         # with it's utf-8 encoded equivalent so comparison
         # works.
-        content = { 0: "75,23,16,18\n", 1: self.html_doc.replace(" =E4=F6=FC=C4=D6=DC=DF"," \xc3\xa4\xc3\xb6\xc3\xbc\xc3\x84\xc3\x96\xc3\x9c\xc3\x9f")}
+        content = { 0: "75,23,16,18\n",
+                    1: self.html_doc.replace(" =E4=F6=FC=C4=D6=DC=DF",
+                                             b2s(b" \xc3\xa4\xc3\xb6\xc3\xbc\xc3\x84\xc3\x96\xc3\x9c\xc3\x9f")) }
         for n, id in enumerate (msg.files):
             f = self.db.file.getnode (id)
             self.assertEqual(f.name, name)
             self.assertEqual(f.type, types[n])
             self.assertEqual(f.content, content[n])
 
-            self.compareMessages(self._get_mail(),
+            self.compareMessages(self._get_mail()
+                                 .replace('=E2=80=99', '')
+                                 .replace('=E2=80=9C', '')
+                                 .replace('=E2=80=9D', '')
+                                 .replace('==\n', '===\n\n').replace('=\n', ''),
 '''From roundup-admin@your.tracker.email.domain.example Thu Oct 10 02:42:14 2017
 FROM: roundup-admin@your.tracker.email.domain.example
 TO: chef@bork.bork.bork, richard@test.test
@@ -1354,8 +1368,7 @@ installed for Roundup installation to work. Debian and derivatives, are
 known to require this.
 
 If youre on windows, you will either need to be using the ActiveState python
-distribution (at http://www.activestate.com/Products/ActivePython/), or you=
-ll
+distribution (at http://www.activestate.com/Products/ActivePython/), or youll
 have to install the win32all package separately (get it from
 http://starship.python.net/crew/mhammond/win32/).
 
@@ -2571,7 +2584,7 @@ Unknown address: fubar@bork.bork.bork
 """)
             assert not body_diff, body_diff
         else:
-            raise AssertionError, "Unauthorized not raised when handling mail"
+            raise AssertionError("Unauthorized not raised when handling mail")
 
         # Add Web Access role to anonymous, and try again to make sure
         # we get a "please register at:" message this time.
@@ -2594,7 +2607,7 @@ Unknown address: fubar@bork.bork.bork
 """)
             assert not body_diff, body_diff
         else:
-            raise AssertionError, "Unauthorized not raised when handling mail"
+            raise AssertionError("Unauthorized not raised when handling mail")
 
         # Make sure list of users is the same as before.
         m = self.db.user.list()
@@ -2648,11 +2661,11 @@ This is a test submission of a new issue.
         self._allowAnonymousSubmit()
         self._handle_mail(message)
         title = self.db.issue.get('1', 'title')
-        self.assertEquals(title, 'Test \xc3\x84\xc3\x96\xc3\x9c umlauts X1 X2')
+        self.assertEquals(title, b2s(b'Test \xc3\x84\xc3\x96\xc3\x9c umlauts X1 X2'))
         m = set(self.db.user.list())
         new = list(m - l)[0]
         name = self.db.user.get(new, 'realname')
-        self.assertEquals(name, 'Firstname \xc3\xa4\xc3\xb6\xc3\x9f Last')
+        self.assertEquals(name, b2s(b'Firstname \xc3\xa4\xc3\xb6\xc3\x9f Last'))
 
     def testNewUserAuthorMixedEncodedNameSpacing(self):
         l = set(self.db.user.list())
@@ -2670,12 +2683,12 @@ This is a test submission of a new issue.
         self._allowAnonymousSubmit()
         self._handle_mail(message)
         title = self.db.issue.get('1', 'title')
-        self.assertEquals(title, 'Test (\xc3\x84\xc3\x96\xc3\x9c) umlauts X1')
+        self.assertEquals(title, b2s(b'Test (\xc3\x84\xc3\x96\xc3\x9c) umlauts X1'))
         m = set(self.db.user.list())
         new = list(m - l)[0]
         name = self.db.user.get(new, 'realname')
         self.assertEquals(name,
-            '(\xc3\xa4\xc3\xb6\xc3\x9f\xc3\xa4\xc3\xb6\xc3\x9f)')
+            b2s(b'(\xc3\xa4\xc3\xb6\xc3\x9f\xc3\xa4\xc3\xb6\xc3\x9f)'))
 
     def testUnknownUser(self):
         l = set(self.db.user.list())
@@ -2739,8 +2752,7 @@ This is a test submission of a new issue.
 
     def testEnc01(self):
         self.db.user.set(self.mary_id,
-            realname='\xe4\xf6\xfc\xc4\xd6\xdc\xdf, Mary'.decode
-            ('latin-1').encode('utf-8'))
+            realname=u2s(u'\xe4\xf6\xfc\xc4\xd6\xdc\xdf, Mary'))
         self.doNewIssue()
         self._handle_mail('''Content-Type: text/plain;
   charset="iso-8859-1"
@@ -2840,9 +2852,7 @@ _______________________________________________________________________
 
     def testMultipartEnc01(self):
         self.doNewIssue()
-        self._handle_mail('''Content-Type: text/plain;
-  charset="iso-8859-1"
-From: mary <mary@test.test>
+        self._handle_mail('''From: mary <mary@test.test>
 To: issue_tracker@your.tracker.email.domain.example
 Message-Id: <followup_dummy_id>
 In-Reply-To: <dummy_test_message_id>
@@ -2894,9 +2904,7 @@ _______________________________________________________________________
 
     def testContentDisposition(self):
         self.doNewIssue()
-        self._handle_mail('''Content-Type: text/plain;
-  charset="iso-8859-1"
-From: mary <mary@test.test>
+        self._handle_mail('''From: mary <mary@test.test>
 To: issue_tracker@your.tracker.email.domain.example
 Message-Id: <followup_dummy_id>
 In-Reply-To: <dummy_test_message_id>
@@ -4188,7 +4196,7 @@ minute, so we get to </FONT>
     def testForwardedMessageAttachment(self):
         message = '''Return-Path: <rgg@test.test>
 Received: from localhost(127.0.0.1), claiming to be "[115.130.26.69]"
-via SMTP by localhost, id smtpdAAApLaWrq; Tue Apr 13 23:10:05 2010
+  via SMTP by localhost, id smtpdAAApLaWrq; Tue Apr 13 23:10:05 2010
 Message-ID: <4BC4F9C7.50409@test.test>
 Date: Wed, 14 Apr 2010 09:09:59 +1000
 From: Rupert Goldie <rgg@test.test>
@@ -4390,20 +4398,16 @@ P81iDOWUp/uyIe5ZfvNI38BBxEYslPTUlDk2GB8J2Vun7IWHoj9a4tY3IotC9jBr
         # trap_exc=1: we want a bounce message:
         self._handle_mail(self.encrypted_msg, trap_exc=1)
         m = self._get_mail()
-        fp = email.parser.FeedParser()
-        fp.feed(m)
-        parts = fp.close().get_payload()
+        parts = email.message_from_string(m).get_payload()
         self.assertEqual(len(parts),2)
         self.assertEqual(parts[0].get_payload().strip(), 'Version: 1')
-        crypt = pyme.core.Data(parts[1].get_payload())
-        plain = pyme.core.Data()
-        ctx = pyme.core.Context()
+        crypt = gpg.core.Data(parts[1].get_payload())
+        plain = gpg.core.Data()
+        ctx = gpg.core.Context()
         res = ctx.op_decrypt(crypt, plain)
         self.assertEqual(res, None)
         plain.seek(0,0)
-        fp = email.parser.FeedParser()
-        fp.feed(plain.read())
-        parts = fp.close().get_payload()
+        parts = message_from_bytes(plain.read()).get_payload()
         self.assertEqual(len(parts),2)
         self.assertEqual(parts[0].get_payload().strip(),
             'You are not permitted to create messages.')

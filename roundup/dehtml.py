@@ -1,4 +1,6 @@
 
+from __future__ import print_function
+from roundup.anypy.strings import u2s, uchr
 class dehtml:
     def __init__(self, converter):
         if converter == "none":
@@ -16,15 +18,21 @@ class dehtml:
                     for script in soup(["script", "style"]):
                         script.extract()
 
-                    return soup.get_text('\n', strip=True).encode('utf-8')
+                    return u2s(soup.get_text('\n', strip=True))
 
                 self.html2text = html2text
             else:
                 raise ImportError # use
         except ImportError:
             # use the fallback below if beautiful soup is not installed.
-            from HTMLParser import HTMLParser
-            from htmlentitydefs import name2codepoint
+            try:
+                # Python 3+.
+                from html.parser import HTMLParser
+                from html.entities import name2codepoint
+            except ImportError:
+                # Python 2.
+                from HTMLParser import HTMLParser
+                from htmlentitydefs import name2codepoint
 
             class DumbHTMLParser(HTMLParser):
                 # class attribute
@@ -62,7 +70,7 @@ class dehtml:
                 def handle_entityref(self, name):
                     if self._skip_data:
                         return
-                    c = unichr(name2codepoint[name])
+                    c = uchr(name2codepoint[name])
                     try:
                         self.text= self.text + c
                     except UnicodeEncodeError:
@@ -128,20 +136,20 @@ have to install the win32all package separately (get it from
 
     html2text = dehtml("dehtml").html2text
     if html2text:
-        print html2text(html)
+        print(html2text(html))
 
     try:
         # trap error seen if N_TOKENS not defined when run.
         html2text = dehtml("beautifulsoup").html2text
         if html2text:
-            print html2text(html)
+            print(html2text(html))
     except NameError as e:
-        print "captured error %s"%e
+        print("captured error %s"%e)
 
     html2text = dehtml("none").html2text
     if html2text:
-        print "FAIL: Error, dehtml(none) is returning a function"
+        print("FAIL: Error, dehtml(none) is returning a function")
     else:
-        print "PASS: dehtml(none) is returning None"
+        print("PASS: dehtml(none) is returning None")
 
 

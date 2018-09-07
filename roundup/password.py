@@ -19,61 +19,79 @@
 """
 __docformat__ = 'restructuredtext'
 
-import re, string, random
-import os
+import re, string
 from base64 import b64encode, b64decode
 from hashlib import md5, sha1
+
+from roundup.anypy.strings import us2s, b2s, s2b
+import roundup.anypy.random_ as random_
 
 try:
     import crypt
 except ImportError:
     crypt = None
 
-_bempty = ""
+_bempty = b""
 _bjoin = _bempty.join
 
-def getrandbytes(count):
-    return _bjoin(chr(random.randint(0,255)) for i in xrange(count))
+def bchr(c):
+    if bytes == str:
+        # Python 2.
+        return chr(c)
+    else:
+        # Python 3.
+        return bytes((c,))
+
+def bord(c):
+    if bytes == str:
+        # Python 2.
+        return ord(c)
+    else:
+        # Python 3.  Elements of bytes are integers.
+        return c
 
 #NOTE: PBKDF2 hash is using this variant of base64 to minimize encoding size,
 #      and have charset that's compatible w/ unix crypt variants
 def h64encode(data):
     """encode using variant of base64"""
-    return b64encode(data, "./").strip("=\n")
+    return b2s(b64encode(data, b"./").strip(b"=\n"))
 
 def h64decode(data):
     """decode using variant of base64"""
+    data = s2b(data)
     off = len(data) % 4
     if off == 0:
-        return b64decode(data, "./")
+        return b64decode(data, b"./")
     elif off == 1:
         raise ValueError("Invalid base64 input")
     elif off == 2:
-        return b64decode(data + "==", "./")
+        return b64decode(data + b"==", b"./")
     else:
-        return b64decode(data + "=", "./")
+        return b64decode(data + b"=", b"./")
 
 try:
-    from M2Crypto.EVP import pbkdf2 as _pbkdf2
+    from hashlib import pbkdf2_hmac
+    def _pbkdf2(password, salt, rounds, keylen):
+        return pbkdf2_hmac('sha1', password, salt, rounds, keylen)
 except ImportError:
-    #no m2crypto - make our own pbkdf2 function
+    #no hashlib.pbkdf2_hmac - make our own pbkdf2 function
     from struct import pack
     from hmac import HMAC
 
     def xor_bytes(left, right):
         "perform bitwise-xor of two byte-strings"
-        return _bjoin(chr(ord(l) ^ ord(r)) for l, r in zip(left, right))
+        return _bjoin(bchr(bord(l) ^ bord(r)) for l, r in zip(left, right))
 
     def _pbkdf2(password, salt, rounds, keylen):
         digest_size = 20 # sha1 generates 20-byte blocks
         total_blocks = int((keylen+digest_size-1)/digest_size)
         hmac_template = HMAC(password, None, sha1)
         out = _bempty
-        for i in xrange(1, total_blocks+1):
+        for i in range(1, total_blocks+1):
             hmac = hmac_template.copy()
             hmac.update(salt + pack(">L",i))
             block = tmp = hmac.digest()
-            for j in xrange(rounds-1):
+            for j in range(rounds-1):
                 hmac = hmac_template.copy()
                 hmac.update(tmp)
                 tmp = hmac.digest()
@@ -89,33 +107,30 @@ def ssha(password, salt):
     '''
     shaval = sha1(password)
     shaval.update( salt )
-    ssha_digest = b64encode( '{}{}'.format(shaval.digest(), salt) ).strip()
+    ssha_digest = b64encode( shaval.digest() + salt ).strip()
     return ssha_digest
 
 def pbkdf2(password, salt, rounds, keylen):
     """pkcs#5 password-based key derivation v2.0
 
     :arg password: passphrase to use to generate key (if unicode, converted to utf-8)
-    :arg salt: salt string to use when generating key (if unicode, converted to utf-8)
+    :arg salt: salt bytes to use when generating key
     :param rounds: number of rounds to use to generate key
     :arg keylen: number of bytes to generate
 
-    If M2Crypto is present, uses it's implementation as backend.
+    If hashlib supports pbkdf2, uses it's implementation as backend.
 
     :returns:
         raw bytes of generated key
     """
-    if isinstance(password, unicode):
-        password = password.encode("utf-8")
-    if isinstance(salt, unicode):
-        salt = salt.encode("utf-8")
+    password = s2b(us2s(password))
     if keylen > 40:
         #NOTE: pbkdf2 allows up to (2**31-1)*20 bytes,
         # but m2crypto has issues on some platforms above 40,
         # and such sizes aren't needed for a password hash anyways...
-        raise ValueError, "key length too large"
+        raise ValueError("key length too large")
     if rounds < 1:
-        raise ValueError, "rounds must be positive number"
+        raise ValueError("rounds must be positive number")
     return _pbkdf2(password, salt, rounds, keylen)
 
 class PasswordValueError(ValueError):
@@ -126,18 +141,17 @@ def pbkdf2_unpack(pbkdf2):
     """ unpack pbkdf2 encrypted password into parts,
         assume it has format "{rounds}${salt}${digest}
     """
-    if isinstance(pbkdf2, unicode):
-        pbkdf2 = pbkdf2.encode("ascii")
+    pbkdf2 = us2s(pbkdf2)
     try:
         rounds, salt, digest = pbkdf2.split("$")
     except ValueError:
-        raise PasswordValueError, "invalid PBKDF2 hash (wrong number of separators)"
+        raise PasswordValueError("invalid PBKDF2 hash (wrong number of separators)")
     if rounds.startswith("0"):
-        raise PasswordValueError, "invalid PBKDF2 hash (zero-padded rounds)"
+        raise PasswordValueError("invalid PBKDF2 hash (zero-padded rounds)")
     try:
         rounds = int(rounds)
     except ValueError:
-        raise PasswordValueError, "invalid PBKDF2 hash (invalid rounds)"
+        raise PasswordValueError("invalid PBKDF2 hash (invalid rounds)")
     raw_salt = h64decode(salt)
     return rounds, salt, raw_salt, digest
 
@@ -150,14 +164,14 @@ def encodePassword(plaintext, scheme, other=None, config=None):
         if other:
             rounds, salt, raw_salt, digest = pbkdf2_unpack(other)
         else:
-            raw_salt = getrandbytes(20)
+            raw_salt = random_.token_bytes(20)
             salt = h64encode(raw_salt)
             if config:
                 rounds = config.PASSWORD_PBKDF2_DEFAULT_ROUNDS
             else:
                 rounds = 10000
         if rounds < 1000:
-            raise PasswordValueError, "invalid PBKDF2 hash (rounds too low)"
+            raise PasswordValueError("invalid PBKDF2 hash (rounds too low)")
         raw_digest = pbkdf2(plaintext, raw_salt, rounds, 20)
         return "%d$%s$%s" % (rounds, salt, h64encode(raw_digest))
     elif scheme == 'SSHA':
@@ -167,32 +181,32 @@ def encodePassword(plaintext, scheme, other=None, config=None):
         else:
             #new password
             # variable salt length
-            salt_len = random.randrange(36, 52)
-            salt = os.urandom(salt_len)
-        s = ssha(plaintext, salt)
+            salt_len = random_.randbelow(52-36) + 36
+            salt = random_.token_bytes(salt_len)
+        s = ssha(s2b(plaintext), salt)
     elif scheme == 'SHA':
-        s = sha1(plaintext).hexdigest()
+        s = sha1(s2b(plaintext)).hexdigest()
     elif scheme == 'MD5':
-        s = md5(plaintext).hexdigest()
+        s = md5(s2b(plaintext)).hexdigest()
     elif scheme == 'crypt' and crypt is not None:
         if other is not None:
             salt = other
         else:
-            saltchars = './0123456789'+string.letters
-            salt = random.choice(saltchars) + random.choice(saltchars)
+            saltchars = './0123456789'+string.ascii_letters
+            salt = random_.choice(saltchars) + random_.choice(saltchars)
         s = crypt.crypt(plaintext, salt)
     elif scheme == 'plaintext':
         s = plaintext
     else:
-        raise PasswordValueError, 'Unknown encryption scheme %r'%scheme
+        raise PasswordValueError('Unknown encryption scheme %r'%scheme)
     return s
 
 def generatePassword(length=12):
-    chars = string.letters+string.digits
-    password = [random.choice(chars) for x in range(length)]
+    chars = string.ascii_letters+string.digits
+    password = [random_.choice(chars) for x in range(length - 1)]
     # make sure there is at least one digit
-    password[0] = random.choice(string.digits)
-    random.shuffle(password)
+    digitidx = random_.randbelow(length)
+    password[digitidx:digitidx] = [random_.choice(string.digits)]
     return ''.join(password)
 
 class JournalPassword:
@@ -223,19 +237,22 @@ class JournalPassword:
 
     __str__ = dummystr
 
-    def __cmp__(self, other):
+    def __eq__(self, other):
         """Compare this password against another password."""
         # check to see if we're comparing instances
         if isinstance(other, self.__class__):
             if self.scheme != other.scheme:
-                return cmp(self.scheme, other.scheme)
-            return cmp(self.password, other.password)
+                return False
+            return self.password == other.password
 
         # assume password is plaintext
         if self.password is None:
-            raise ValueError, 'Password not set'
-        return cmp(self.password, encodePassword(other, self.scheme,
-            self.password or None))
+            raise ValueError('Password not set')
+        return self.password == encodePassword(other, self.scheme,
+            self.password or None)
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
 
 class Password(JournalPassword):
     """The class encapsulates a Password property type value in the database.
@@ -301,7 +318,7 @@ class Password(JournalPassword):
             # currently plaintext - encrypt
             self.setPassword(encrypted, scheme, config=config)
         if strict and self.scheme not in self.known_schemes:
-            raise PasswordValueError, "Unknown encryption scheme: %r" % (self.scheme,)
+            raise PasswordValueError("Unknown encryption scheme: %r" % (self.scheme,))
 
     def setPassword(self, plaintext, scheme=None, config=None):
         """Sets encrypts plaintext."""
@@ -314,7 +331,7 @@ class Password(JournalPassword):
     def __str__(self):
         """Stringify the encrypted password for database storage."""
         if self.password is None:
-            raise ValueError, 'Password not set'
+            raise ValueError('Password not set')
         return '{%s}%s'%(self.scheme, self.password)
 
 def test():
@@ -349,7 +366,7 @@ def test():
 
     # PBKDF2 - low level function
     from binascii import unhexlify
-    k = pbkdf2("password", "ATHENA.MIT.EDUraeburn", 1200, 32)
+    k = pbkdf2("password", b"ATHENA.MIT.EDUraeburn", 1200, 32)
     assert k == unhexlify("5c08eb61fdf71e4e4ec3cf6ba1f5512ba7e52ddbc5e5142f708a31e2e62b1e13")
 
     # PBKDF2 - hash function

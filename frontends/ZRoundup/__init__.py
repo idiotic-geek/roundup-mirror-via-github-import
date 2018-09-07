@@ -19,7 +19,7 @@ __version__='1.1'
 import os
 # figure where ZRoundup is installed
 here = None
-if os.environ.has_key('INSTANCE_HOME'):
+if 'INSTANCE_HOME' in os.environ:
     here = os.environ['INSTANCE_HOME']
     path = os.path.join(here, 'Products', 'ZRoundup')
     if not os.path.exists(path):
@@ -32,10 +32,10 @@ if here is None:
     if not os.path.exists(path):
         path = os.path.join(here, 'lib', 'python', 'Products', 'ZRoundup')
         if not os.path.exists(path):
-            raise ValueError, "Can't determine where ZRoundup is installed"
+            raise ValueError("Can't determine where ZRoundup is installed")
 
 # product initialisation
-from ZRoundup import ZRoundup, manage_addZRoundupForm, manage_addZRoundup
+from .ZRoundup import ZRoundup, manage_addZRoundupForm, manage_addZRoundup
 def initialize(context):
     context.registerClass(
         ZRoundup,

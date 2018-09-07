@@ -17,8 +17,8 @@ A TALES Iterator with the ability to use first() and last() on
 subpaths of elements.
 """
 
-import TALES
-from Expressions import restrictedTraverse, Undefs, getSecurityManager
+from . import TALES
+from .Expressions import restrictedTraverse, Undefs, getSecurityManager
 
 class Iterator(TALES.Iterator):
     def __bobo_traverse__(self, REQUEST, name):
@@ -34,7 +34,7 @@ class Iterator(TALES.Iterator):
             return ob1 == ob2
         if isinstance(name, type('')):
             name = name.split('/')
-        name = filter(None, name)
+        name = list(filter(None, name))
         securityManager = getSecurityManager()
         try:
             ob1 = restrictedTraverse(ob1, name, securityManager)

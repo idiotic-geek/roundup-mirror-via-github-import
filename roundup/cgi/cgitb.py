@@ -4,12 +4,14 @@
 
 """Extended CGI traceback handler by Ka-Ping Yee, <ping@lfw.org>.
 """
+from __future__ import print_function
 __docformat__ = 'restructuredtext'
 
-import sys, os, types, string, keyword, linecache, tokenize, inspect, cgi
+import sys, os, keyword, linecache, tokenize, inspect, cgi
 import pydoc, traceback
 
 from roundup.cgi import templating, TranslationService
+from roundup.anypy.strings import s2b
 
 def get_translator(i18n=None):
     """Return message translation function (gettext)
@@ -111,7 +113,7 @@ def html(context=5, i18n=None):
     etype, evalue = sys.exc_info()[0], sys.exc_info()[1]
     if type(etype) is type:
         etype = etype.__name__
-    pyver = 'Python ' + string.split(sys.version)[0] + '<br>' + sys.executable
+    pyver = 'Python ' + sys.version.split()[0] + '<br>' + sys.executable
     head = pydoc.html.heading(
         _('<font size=+1><strong>%(exc_type)s</strong>: %(exc_value)s</font>')
         % {'exc_type': etype, 'exc_value': evalue},
@@ -155,12 +157,23 @@ def html(context=5, i18n=None):
                     names.append(token)
             if type == tokenize.NEWLINE: raise IndexError
         def linereader(file=file, lnum=[lnum]):
-            line = linecache.getline(file, lnum[0])
+            line = s2b(linecache.getline(file, lnum[0]))
             lnum[0] = lnum[0] + 1
             return line
 
+        # The interface that is tokenize.tokenize in Python 3 is
+        # called tokenize.generate_tokens in Python 2.  However,
+        # Python 2 has tokenize.tokenize with a different interface,
+        # and Python 3 has an undocumented generate_tokens function,
+        # also with a different interface, so a version check is
+        # needed instead of checking for which functions exist.
+        if sys.version_info[0] > 2:
+            tokenize_fn = tokenize.tokenize
+        else:
+            tokenize_fn = tokenize.generate_tokens
         try:
-            tokenize.tokenize(linereader, tokeneater)
+            for t in tokenize_fn(linereader):
+                tokeneater(*t)
         except IndexError:
             pass
         lvals = []
@@ -179,7 +192,7 @@ def html(context=5, i18n=None):
                 name = '<em>global</em> <strong>%s</strong>' % name
             lvals.append('%s&nbsp;= %s'%(name, value))
         if lvals:
-            lvals = string.join(lvals, ', ')
+            lvals = ', '.join(lvals)
             lvals = indent + '<small><font color="#909090">%s'\
                 '</font></small><br>'%lvals
         else:
@@ -199,21 +212,20 @@ def html(context=5, i18n=None):
             if i == lnum:
                 excerpt.append(lvals)
             i = i + 1
-        traceback.append('<p>' + level + string.join(excerpt, '\n'))
+        traceback.append('<p>' + level + '\n'.join(excerpt))
 
     traceback.reverse()
 
     exception = '<p><strong>%s</strong>: %s' % (str(etype), str(evalue))
     attribs = []
-    if type(evalue) is types.InstanceType:
-        for name in dir(evalue):
-            value = pydoc.html.repr(getattr(evalue, name))
-            attribs.append('<br>%s%s&nbsp;= %s' % (indent, name, value))
+    for name in dir(evalue):
+        value = pydoc.html.repr(getattr(evalue, name))
+        attribs.append('<br>%s%s&nbsp;= %s' % (indent, name, value))
 
-    return head + string.join(attribs) + string.join(traceback) + '<p>&nbsp;</p>'
+    return head + ' '.join(attribs) + ' '.join(traceback) + '<p>&nbsp;</p>'
 
 def handler():
-    print breaker()
-    print html()
+    print(breaker())
+    print(html())
 
 # vim: set filetype=python ts=4 sw=4 et si :

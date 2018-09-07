@@ -49,10 +49,10 @@ isolation_levels = \
 
 def connection_dict(config, dbnamestr=None):
     d = rdbms_common.connection_dict(config, dbnamestr)
-    if d.has_key('password'):
+    if 'password' in d:
         d['passwd'] = d['password']
         del d['password']
-    if d.has_key('port'):
+    if 'port' in d:
         d['port'] = int(d['port'])
     return d
 
@@ -180,11 +180,11 @@ class Database(rdbms_common.Database):
         try:
             self.load_dbschema()
         except MySQLdb.OperationalError as message:
-            if message[0] != ER.NO_DB_ERROR:
+            if message.args[0] != ER.NO_DB_ERROR:
                 raise
         except MySQLdb.ProgrammingError as message:
-            if message[0] != ER.NO_SUCH_TABLE:
-                raise hyperdb.DatabaseError, message
+            if message.args[0] != ER.NO_SUCH_TABLE:
+                raise hyperdb.DatabaseError(message)
             self.init_dbschema()
             self.sql("CREATE TABLE `schema` (`schema` TEXT) ENGINE=%s"%
                 self.mysql_backend)
@@ -252,12 +252,12 @@ class Database(rdbms_common.Database):
             for name, s_prop in old_spec[1]:
                 # s_prop is a repr() string of a hyperdb type object
                 if s_prop.find('Multilink') == -1:
-                    if properties.has_key(name):
+                    if name in properties:
                         propnames.append(name)
                     continue
                 tn = '%s_%s'%(cn, name)
 
-                if properties.has_key(name):
+                if name in properties:
                     # grabe the current values
                     sql = 'select linkid, nodeid from %s'%tn
                     self.sql(sql)
@@ -268,7 +268,7 @@ class Database(rdbms_common.Database):
                 sql = 'drop table %s'%tn
                 self.sql(sql)
 
-                if properties.has_key(name):
+                if name in properties:
                     # re-create and populate the new table
                     self.create_multilink_table(klass, name)
                     sql = '''insert into %s (linkid, nodeid) values
@@ -660,7 +660,7 @@ class MysqlClass:
         # then the snapshot has already been established.
         if e[0] == ER.DUP_ENTRY:
             key = propvalues[self.key]
-            raise ValueError, 'node with key "%s" exists' % key
+            raise ValueError('node with key "%s" exists' % key)
         # We don't know what this exception is; reraise it.
         raise
         

@@ -21,7 +21,7 @@ This script needs four steps to work:
 And you're done!
 """
 
-import sys, os, csv, time, urllib2, httplib, mimetypes, urlparse
+import sys, os, csv, time, mimetypes
 
 try:
     import cElementTree as ElementTree
@@ -29,6 +29,8 @@ except ImportError:
     from elementtree import ElementTree
 
 from roundup import instance, hyperdb, date, support, password
+from roundup.anypy import http_, urllib_
+from roundup.anypy.strings import s2b, us2s
 
 today = date.Date('.')
 
@@ -39,14 +41,14 @@ def get_url(aid):
     figure what the URL should be to access that artifact, and hence any
     attached files."""
     # first we hit this URL...
-    conn = httplib.HTTPConnection("sourceforge.net")
+    conn = http_.client.HTTPConnection("sourceforge.net")
     conn.request("GET", "/support/tracker.php?aid=%s"%aid)
     response = conn.getresponse()
     # which should respond with a redirect to the correct url which has the
     # magic "group_id" and "atid" values in it that we need
     assert response.status == 302, 'response code was %s'%response.status
     location = response.getheader('location')
-    query = urlparse.urlparse(response.getheader('location'))[-2]
+    query = urllib_.urlparse(response.getheader('location'))[-2]
     info = dict([param.split('=') for param in query.split('&')])
     return DL_URL%info
 
@@ -85,13 +87,13 @@ def fetch_files(xml_file, file_dir):
 
     for aid, fid in support.Progress('Fetching files', list(to_fetch)):
         if fid in got: continue
-        if not urls.has_key(aid):
+        if aid not in urls:
             urls[aid] = get_url(aid)
             f = open(os.path.join(file_dir, 'urls.txt'), 'a')
             f.write('%s %s\n'%(aid, urls[aid]))
             f.close()
         url = urls[aid] + '&file_id=' + fid
-        f = urllib2.urlopen(url)
+        f = urllib_.urlopen(url)
         data = f.read()
         n = open(os.path.join(file_dir, fid), 'w')
         n.write(data)
@@ -175,7 +177,7 @@ def import_xml(tracker_home, xml_file, file_dir):
 
         categories.add(d['category'])
 
-        if op.has_key('body'):
+        if 'body' in op:
             l = d.setdefault('messages', [])
             l.insert(0, op)
 
@@ -278,7 +280,7 @@ def import_xml(tracker_home, xml_file, file_dir):
 
         # sort messages and assign ids
         d['messages'] = []
-        message_data.sort(lambda a,b:cmp(a['date'],b['date']))
+        message_data.sort(key=lambda a:a['date'])
         for message in message_data:
             message_id += 1
             message['id'] = str(message_id)
@@ -294,7 +296,7 @@ def import_xml(tracker_home, xml_file, file_dir):
                     files.append(fid)
                     name = name.strip()
                     try:
-                        f = open(os.path.join(file_dir, fid))
+                        f = open(os.path.join(file_dir, fid), 'rb')
                         content = f.read()
                         f.close()
                     except:
@@ -361,7 +363,7 @@ def write_csv(klass, data):
             if name == 'is retired':
                 continue
             prop = props[name]
-            if entry.has_key(name):
+            if name in entry:
                 if isinstance(prop, hyperdb.Date) or \
                         isinstance(prop, hyperdb.Interval):
                     row.append(repr(entry[name].get_tuple()))
@@ -383,11 +385,11 @@ def write_csv(klass, data):
         if isinstance(klass, hyperdb.FileClass) and entry.get('content'):
             fname = klass.exportFilename('/tmp/imported/', entry['id'])
             support.ensureParentsExist(fname)
-            c = open(fname, 'w')
-            if isinstance(entry['content'], unicode):
-                c.write(entry['content'].encode('utf8'))
-            else:
+            c = open(fname, 'wb')
+            if isinstance(entry['content'], bytes):
                 c.write(entry['content'])
+            else:
+                c.write(s2b(us2s(entry['content'])))
             c.close()
 
     f.close()

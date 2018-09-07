@@ -9,8 +9,10 @@ from roundup import hyperdb
 from roundup.exceptions import Unauthorised, UsageError
 from roundup.date import Date, Range, Interval
 from roundup import actions
-from SimpleXMLRPCServer import SimpleXMLRPCDispatcher
-from xmlrpclib import Binary
+from roundup.anypy import xmlrpc_
+SimpleXMLRPCDispatcher = xmlrpc_.server.SimpleXMLRPCDispatcher
+Binary = xmlrpc_.client.Binary
+from roundup.anypy.strings import us2s
 from traceback import format_exc
 
 def translate(value):
@@ -39,20 +41,15 @@ def props_from_args(db, cl, args, itemid=None):
         try :
             key, value = arg.split('=', 1)
         except ValueError :
-            raise UsageError, 'argument "%s" not propname=value'%arg
-        if isinstance(key, unicode):
-            try:
-                key = key.encode ('ascii')
-            except UnicodeEncodeError:
-                raise UsageError, 'argument %r is no valid ascii keyword'%key
-        if isinstance(value, unicode):
-            value = value.encode('utf-8')
+            raise UsageError('argument "%s" not propname=value'%arg)
+        key = us2s(key)
+        value = us2s(value)
         if value:
             try:
                 props[key] = hyperdb.rawToHyperdb(db, cl, itemid,
                                                   key, value)
             except hyperdb.HyperdbValueError as message:
-                raise UsageError, message
+                raise UsageError(message)
         else:
             # If we're syncing a file the contents may not be None
             if key == 'content':
@@ -76,7 +73,7 @@ class RoundupInstance:
         s = {}
         for c in self.db.classes:
             cls = self.db.classes[c]
-            props = [(n,repr(v)) for n,v in cls.properties.items()]
+            props = [(n,repr(v)) for n,v in sorted(cls.properties.items())]
             s[c] = props
         return s
 
@@ -118,7 +115,7 @@ class RoundupInstance:
     def display(self, designator, *properties):
         classname, itemid = hyperdb.splitDesignator(designator)
         cl = self.db.getclass(classname)
-        props = properties and list(properties) or cl.properties.keys()
+        props = properties and list(properties) or list(cl.properties.keys())
         props.sort()
         for p in props:
             if not self.db.security.hasPermission('View', self.db.getuid(),
@@ -140,8 +137,8 @@ class RoundupInstance:
 
         # check for the key property
         key = cl.getkey()
-        if key and not props.has_key(key):
-            raise UsageError, 'you must provide the "%s" property.'%key
+        if key and key not in props:
+            raise UsageError('you must provide the "%s" property.'%key)
 
         for key in props:
             if not self.db.security.hasPermission('Create', self.db.getuid(),
@@ -165,7 +162,7 @@ class RoundupInstance:
         classname, itemid = hyperdb.splitDesignator(designator)
         cl = self.db.getclass(classname)
         props = props_from_args(self.db, cl, args, itemid) # convert types
-        for p in props.iterkeys():
+        for p in props.keys():
             if not self.db.security.hasPermission('Edit', self.db.getuid(),
                                                   classname, p, itemid):
                 raise Unauthorised('Permission to edit %s of %s denied'%

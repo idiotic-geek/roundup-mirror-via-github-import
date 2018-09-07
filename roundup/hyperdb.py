@@ -26,12 +26,15 @@ import traceback
 import logging
 
 # roundup modules
-import date, password
-from support import ensureParentsExist, PrioList
+from . import date, password
+from .support import ensureParentsExist, PrioList
 from roundup.i18n import _
 from roundup.cgi.exceptions import DetectorError
+from roundup.anypy.cmp_ import NoneAndDictComparable
+from roundup.anypy.strings import eval_import
 
 logger = logging.getLogger('roundup.hyperdb')
+
 
 #
 # Types
@@ -87,8 +90,7 @@ class Password(_Type):
         try:
             return password.Password(encrypted=value, scheme=self.scheme, strict=True)
         except password.PasswordValueError as message:
-            raise HyperdbValueError, \
-                    _('property %s: %s')%(kw['propname'], message)
+            raise HyperdbValueError(_('property %s: %s')%(kw['propname'], message))
 
     def sort_repr (self, cls, val, name):
         if not val:
@@ -110,8 +112,8 @@ class Date(_Type):
         try:
             value = date.Date(value, self.offset(db))
         except ValueError as message:
-            raise HyperdbValueError, _('property %s: %r is an invalid '\
-                'date (%s)')%(kw['propname'], value, message)
+            raise HyperdbValueError(_('property %s: %r is an invalid '\
+                'date (%s)')%(kw['propname'], value, message))
         return value
     def range_from_raw(self, value, db):
         """return Range value from given raw value with offset correction"""
@@ -127,8 +129,8 @@ class Interval(_Type):
         try:
             value = date.Interval(value)
         except ValueError as message:
-            raise HyperdbValueError, _('property %s: %r is an invalid '\
-                'date interval (%s)')%(kw['propname'], value, message)
+            raise HyperdbValueError(_('property %s: %r is an invalid '\
+                'date interval (%s)')%(kw['propname'], value, message))
         return value
     def sort_repr (self, cls, val, name):
         if not val:
@@ -257,8 +259,8 @@ class Multilink(_Pointer):
                 try:
                     curvalue.remove(itemid)
                 except ValueError:
-                    raise HyperdbValueError, _('property %s: %r is not ' \
-                        'currently an element')%(propname, item)
+                    raise HyperdbValueError(_('property %s: %r is not ' \
+                        'currently an element')%(propname, item))
             else:
                 newvalue.append(itemid)
                 if itemid not in curvalue:
@@ -311,8 +313,8 @@ class Number(_Type):
         try:
             value = float(value)
         except ValueError:
-            raise HyperdbValueError, _('property %s: %r is not a number')%(
-                kw['propname'], value)
+            raise HyperdbValueError(_('property %s: %r is not a number')%(
+                kw['propname'], value))
         return value
 
 class Integer(_Type):
@@ -322,8 +324,8 @@ class Integer(_Type):
         try:
             value = int(value)
         except ValueError:
-            raise HyperdbValueError, _('property %s: %r is not an integer')%(
-                kw['propname'], value)
+            raise HyperdbValueError(_('property %s: %r is not an integer')%(
+                kw['propname'], value))
         return value
 #
 # Support for splitting designators
@@ -335,7 +337,7 @@ def splitDesignator(designator, dre=re.compile(r'([^\d]+)(\d+)')):
     """
     m = dre.match(designator)
     if m is None:
-        raise DesignatorError, _('"%s" not a node designator')%designator
+        raise DesignatorError(_('"%s" not a node designator')%designator)
     return m.group(1), m.group(2)
 
 class Proptree(object):
@@ -419,7 +421,7 @@ class Proptree(object):
 
     def append_retr_props(self):
         """Append properties for retrieval."""
-        for name, prop in self.cls.getprops(protected=1).iteritems():
+        for name, prop in self.cls.getprops(protected=1).items():
             if isinstance(prop, Multilink):
                 continue
             self.append(name, need_for='retrieve')
@@ -605,9 +607,11 @@ class Proptree(object):
             idx += 1
         sortattr.append (val)
         sortattr = zip (*sortattr)
-        for dir, i in reversed(zip(directions, dir_idx)):
+        for dir, i in reversed(list(zip(directions, dir_idx))):
             rev = dir == '-'
-            sortattr = sorted (sortattr, key = lambda x:x[i:idx], reverse = rev)
+            sortattr = sorted (sortattr,
+                               key = lambda x: NoneAndDictComparable(x[i:idx]),
+                               reverse = rev)
             idx = i
         return [x[-1] for x in sortattr]
 
@@ -830,7 +834,7 @@ def iter_roles(roles):
         into something python can use more easily
     '''
     if not roles or not roles.strip():
-        raise StopIteration, "Empty roles given"
+        raise StopIteration("Empty roles given")
     for role in [x.lower().strip() for x in roles.split(',')]:
         yield role
 
@@ -853,9 +857,9 @@ class Class:
         must map names to property objects, or a TypeError is raised.
         """
         for name in 'creation activity creator actor'.split():
-            if properties.has_key(name):
-                raise ValueError, '"creation", "activity", "creator" and '\
-                    '"actor" are reserved'
+            if name in properties:
+                raise ValueError('"creation", "activity", "creator" and '\
+                    '"actor" are reserved')
 
         self.classname = classname
         self.properties = properties
@@ -1038,16 +1042,16 @@ class Class:
             else:
                 j_repr=''
             if args and type(args) == type({}):
-                for key in args.keys():
+                for key in list(args.keys()):
                     if key not in self.properties :
                         if enforceperm and not allow_obsolete:
-                            del j[4][key]
+                            del args[key]
                         continue
                     if skipquiet and self.properties[key].quiet:
                         logger.debug("skipping quiet property"
                                      " %s::%s in %s",
                                      self.classname, key, j_repr)
-                        del j[4][key]
+                        del args[key]
                         continue
                     if enforceperm and not ( perm("View",
                                 uid,
@@ -1059,7 +1063,7 @@ class Class:
                         logger.debug("skipping unaccessible property "
                                      "%s::%s seen by user%s in %s",
                                 self.classname, key, uid, j_repr)
-                        del j[4][key]
+                        del args[key]
                         continue
                 if not args:
                     logger.debug("Omitting journal entry for  %s%s"
@@ -1094,6 +1098,13 @@ class Class:
                         pass
                     # obsolete property or class
                     if not cls or key not in cls.properties:
+                        if not enforceperm or allow_obsolete:
+                            journal.append(j)
+                        continue
+                    # obsolete linked-to item
+                    try:
+                        k = cls.get (linkid, key)
+                    except IndexError:
                         if not enforceperm or allow_obsolete:
                             journal.append(j)
                         continue
@@ -1160,7 +1171,7 @@ class Class:
            resolution order.
         """
         if labelprop not in self.getprops():
-            raise ValueError, _("Not a property name: %s") % labelprop
+            raise ValueError(_("Not a property name: %s") % labelprop)
         self._labelprop = labelprop
 
     def setorderprop(self, orderprop):
@@ -1168,7 +1179,7 @@ class Class:
            resolution order
         """
         if orderprop not in self.getprops():
-            raise ValueError, _("Not a property name: %s") % orderprop
+            raise ValueError(_("Not a property name: %s") % orderprop)
         self._orderprop = orderprop
 
     def getkey(self):
@@ -1193,14 +1204,13 @@ class Class:
         if  k:
             return k
         props = self.getprops()
-        if props.has_key('name'):
+        if 'name' in props:
             return 'name'
-        elif props.has_key('title'):
+        elif 'title' in props:
             return 'title'
         if default_to_id:
             return 'id'
-        props = props.keys()
-        props.sort()
+        props = sorted(props.keys())
         return props[0]
 
     def orderprop(self):
@@ -1217,7 +1227,7 @@ class Class:
         if hasattr(self, '_orderprop'):
             return self._orderprop
         props = self.getprops()
-        if props.has_key('order'):
+        if 'order' in props:
             return 'order'
         return self.labelprop()
 
@@ -1263,7 +1273,7 @@ class Class:
         can contain NULL values.
         """
         proptree = Proptree(self.db, self, '', self.getprops(), retr=retr)
-        for key, v in filterspec.iteritems():
+        for key, v in filterspec.items():
             keys = key.split('.')
             p = proptree
             mlseen = False
@@ -1293,7 +1303,7 @@ class Class:
                 continue
             p.sort_direction = s[0]
             proptree.sortattr.append (p)
-        for p in multilinks.iterkeys():
+        for p in multilinks.keys():
             sattr = {}
             for c in p:
                 if c.sort_direction:
@@ -1412,7 +1422,7 @@ class Class:
         """
         props = self.getprops(protected = False)
         pdict = dict([(p, props[p]) for p in propnames])
-        pdict.update([(k, v) for k, v in props.iteritems() if v.required])
+        pdict.update([(k, v) for k, v in props.items() if v.required])
         return pdict
 
     def addprop(self, **properties):
@@ -1473,8 +1483,7 @@ class Class:
     #
     def export_propnames(self):
         """List the property names for export from this Class"""
-        propnames = self.getprops().keys()
-        propnames.sort()
+        propnames = sorted(self.getprops().keys())
         return propnames
 
     def import_journals(self, entries):
@@ -1497,7 +1506,7 @@ class Class:
         last = 0
         r = []
         for n, l in a:
-            nodeid, jdate, user, action, params = map(eval, l)
+            nodeid, jdate, user, action, params = map(eval_import, l)
             assert (str(n) == nodeid)
             if n != last:
                 if r:
@@ -1506,7 +1515,7 @@ class Class:
                 r = []
 
             if action == 'set':
-                for propname, value in params.iteritems():
+                for propname, value in params.items():
                     prop = properties[propname]
                     if value is None:
                         pass
@@ -1567,11 +1576,11 @@ def convertLinkValue(db, propname, prop, value, idre=re.compile('^\d+$')):
             try:
                 value = linkcl.lookup(value)
             except KeyError as message:
-                raise HyperdbValueError, _('property %s: %r is not a %s.')%(
-                    propname, value, prop.classname)
+                raise HyperdbValueError(_('property %s: %r is not a %s.')%(
+                    propname, value, prop.classname))
         else:
-            raise HyperdbValueError, _('you may only enter ID values '\
-                'for property %s')%propname
+            raise HyperdbValueError(_('you may only enter ID values '\
+                'for property %s')%propname)
     return value
 
 def fixNewlines(text):
@@ -1602,8 +1611,8 @@ def rawToHyperdb(db, klass, itemid, propname, value, **kw):
     try:
         proptype =  properties[propname]
     except KeyError:
-        raise HyperdbValueError, _('%r is not a property of %s')%(propname,
-            klass.classname)
+        raise HyperdbValueError(_('%r is not a property of %s')%(propname,
+            klass.classname))
 
     # if we got a string, strip it now
     if isinstance(value, type('')):
@@ -1625,13 +1634,13 @@ class FileClass:
         """The newly-created class automatically includes the "content"
         property.
         """
-        if not properties.has_key('content'):
+        if 'content' not in properties:
             properties['content'] = String(indexme='yes')
 
     def export_propnames(self):
         """ Don't export the "content" property
         """
-        propnames = self.getprops().keys()
+        propnames = list(self.getprops().keys())
         propnames.remove('content')
         propnames.sort()
         return propnames
@@ -1665,7 +1674,7 @@ class FileClass:
 
         mime_type = None
         props = self.getprops()
-        if props.has_key('type'):
+        if 'type' in props:
             mime_type = self.get(nodeid, 'type')
         if not mime_type:
             mime_type = self.default_mime_type
@@ -1680,7 +1689,7 @@ class Node:
         self.__dict__['cl'] = cl
         self.__dict__['nodeid'] = nodeid
     def keys(self, protected=1):
-        return self.cl.getprops(protected=protected).keys()
+        return list(self.cl.getprops(protected=protected).keys())
     def values(self, protected=1):
         l = []
         for name in self.cl.getprops(protected=protected).keys():
@@ -1692,14 +1701,14 @@ class Node:
             l.append((name, self.cl.get(self.nodeid, name)))
         return l
     def has_key(self, name):
-        return self.cl.getprops().has_key(name)
+        return name in self.cl.getprops()
     def get(self, name, default=None):
-        if self.has_key(name):
+        if name in self:
             return self[name]
         else:
             return default
     def __getattr__(self, name):
-        if self.__dict__.has_key(name):
+        if name in self.__dict__:
             return self.__dict__[name]
         try:
             return self.cl.get(self.nodeid, name)
@@ -1708,14 +1717,14 @@ class Node:
             # exceptions should pass through untrapped
             pass
         # nope, no such attribute
-        raise AttributeError, str(value)
+        raise AttributeError(str(value))
     def __getitem__(self, name):
         return self.cl.get(self.nodeid, name)
     def __setattr__(self, name, value):
         try:
             return self.cl.set(self.nodeid, **{name: value})
         except KeyError as value:
-            raise AttributeError, str(value)
+            raise AttributeError(str(value))
     def __setitem__(self, name, value):
         self.cl.set(self.nodeid, **{name: value})
     def history(self, enforceperm=True, skipquiet=True):

@@ -15,6 +15,7 @@ from roundup.backends import indexer_dbm
 from roundup.backends import sessions_dbm
 from roundup.backends import indexer_common
 from roundup.support import ensureParentsExist
+from roundup.anypy.strings import s2b
 
 def new_config(debug=False):
     config = configuration.CoreConfig()
@@ -38,12 +39,12 @@ def create(journaltag, create=True, debug=False):
     vars['FileClass'] = FileClass
     vars['IssueClass'] = IssueClass
     vars['db'] = db
-    execfile(schema, vars)
+    exec(compile(open(schema).read(), schema, 'exec'), vars)
     initial_data = os.path.join(os.path.dirname(__file__),
         '../share/roundup/templates/classic/initial_data.py')
     vars = dict(db=db, admin_email='admin@test.com',
         adminpw=password.Password('sekrit'))
-    execfile(initial_data, vars)
+    exec(compile(open(initial_data).read(), initial_data, 'exec'), vars)
 
     # load standard detectors
     thisdir = os.path.dirname(__file__)
@@ -52,11 +53,13 @@ def create(journaltag, create=True, debug=False):
     for fn in os.listdir(dirname):
         if not fn.endswith('.py'): continue
         vars = {}
-        execfile(os.path.join(dirname, fn), vars)
+        exec(compile(open(os.path.join(dirname, fn)).read(),
+                     os.path.join(dirname, fn), 'exec'), vars)
         vars['init'](db)
 
     vars = {}
-    execfile(os.path.join(thisdir, "tx_Source_detector.py"), vars)
+    exec(compile(open(os.path.join(thisdir, "tx_Source_detector.py")).read(),
+                 os.path.join(thisdir, "tx_Source_detector.py"), 'exec'), vars)
     vars['init'](db)
 
     '''
@@ -108,6 +111,18 @@ def create(journaltag, create=True, debug=False):
     return db
 
 class cldb(dict):
+    def __init__(self, **values):
+        super(cldb, self).__init__()
+        for key, value in values.items():
+            super(cldb, self).__setitem__(s2b(key), value)
+    def __getitem__(self, key):
+        return super(cldb, self).__getitem__(s2b(key))
+    def __setitem__(self, key, value):
+        return super(cldb, self).__setitem__(s2b(key), value)
+    def __delitem__(self, key):
+        return super(cldb, self).__delitem__(s2b(key))
+    def __contains__(self, key):
+        return super(cldb, self).__contains__(s2b(key))
     def close(self):
         pass
 
@@ -116,11 +131,21 @@ class BasicDatabase(dict):
 
         Keys are id strings, values are automatically marshalled data.
     '''
+    def __init__(self, **values):
+        super(BasicDatabase, self).__init__()
+        for k, v in values.items():
+            super(BasicDatabase, self).__setitem__(s2b(k), v)
     def __getitem__(self, key):
         if key not in self:
             d = self[key] = {}
             return d
-        return super(BasicDatabase, self).__getitem__(key)
+        return super(BasicDatabase, self).__getitem__(s2b(key))
+    def __setitem__(self, key, value):
+        return super(BasicDatabase, self).__setitem__(s2b(key), value)
+    def __delitem__(self, key):
+        return super(BasicDatabase, self).__delitem__(s2b(key))
+    def __contains__(self, key):
+        return super(BasicDatabase, self).__contains__(s2b(key))
     def exists(self, infoid):
         return infoid in self
     def get(self, infoid, value, default=None):
@@ -132,7 +157,7 @@ class BasicDatabase(dict):
     def set(self, infoid, **newvalues):
         self[infoid].update(newvalues)
     def list(self):
-        return self.keys()
+        return list(self.keys())
     def destroy(self, infoid):
         del self[infoid]
     def commit(self):
@@ -234,6 +259,8 @@ class Database(back_anydbm.Database):
         return '<memorydb instance at %x>'%id(self)
 
     def storefile(self, classname, nodeid, property, content):
+        if isinstance(content, str):
+            content = s2b(content)
         self.tx_files[classname, nodeid, property] = content
         self.transactions.append((self.doStoreFile, (classname, nodeid,
             property)))
@@ -265,14 +292,14 @@ class Database(back_anydbm.Database):
     #
     def __getattr__(self, classname):
         """A convenient way of calling self.getclass(classname)."""
-        if self.classes.has_key(classname):
+        if classname in self.classes:
             return self.classes[classname]
-        raise AttributeError, classname
+        raise AttributeError(classname)
 
     def addclass(self, cl):
         cn = cl.classname
-        if self.classes.has_key(cn):
-            raise ValueError, cn
+        if cn in self.classes:
+            raise ValueError(cn)
         self.classes[cn] = cl
         if cn not in self.items:
             self.items[cn] = cldb()
@@ -288,9 +315,7 @@ class Database(back_anydbm.Database):
 
     def getclasses(self):
         """Return a list of the names of all existing classes."""
-        l = self.classes.keys()
-        l.sort()
-        return l
+        return sorted(self.classes.keys())
 
     def getclass(self, classname):
         """Get the Class object representing a particular class.
@@ -300,7 +325,7 @@ class Database(back_anydbm.Database):
         try:
             return self.classes[classname]
         except KeyError:
-            raise KeyError, 'There is no class called "%s"'%classname
+            raise KeyError('There is no class called "%s"'%classname)
 
     #
     # Class DBs
@@ -363,7 +388,7 @@ class Database(back_anydbm.Database):
             res += self.journals.get(classname, {})[nodeid]
         except KeyError:
             if res: return res
-            raise IndexError, nodeid
+            raise IndexError(nodeid)
         return res
 
     def pack(self, pack_before):
@@ -392,9 +417,9 @@ class Class(back_anydbm.Class):
 
 class FileClass(back_anydbm.FileClass):
     def __init__(self, db, classname, **properties):
-        if not properties.has_key('content'):
+        if 'content' not in properties:
             properties['content'] = hyperdb.String(indexme='yes')
-        if not properties.has_key('type'):
+        if 'type' not in properties:
             properties['type'] = hyperdb.String()
         back_anydbm.Class.__init__(self, db, classname, **properties)
 
@@ -412,7 +437,7 @@ class FileClass(back_anydbm.FileClass):
         f.close()
         mime_type = None
         props = self.getprops()
-        if props.has_key('type'):
+        if 'type' in props:
             mime_type = self.get(nodeid, 'type')
         if not mime_type:
             mime_type = self.default_mime_type
@@ -429,17 +454,17 @@ class IssueClass(Class, roundupdb.IssueClass):
         dictionary attempts to specify any of these properties or a
         "creation" or "activity" property, a ValueError is raised.
         """
-        if not properties.has_key('title'):
+        if 'title' not in properties:
             properties['title'] = hyperdb.String(indexme='yes')
-        if not properties.has_key('messages'):
+        if 'messages' not in properties:
             properties['messages'] = hyperdb.Multilink("msg")
-        if not properties.has_key('files'):
+        if 'files' not in properties:
             properties['files'] = hyperdb.Multilink("file")
-        if not properties.has_key('nosy'):
+        if 'nosy' not in properties:
             # note: journalling is turned off as it really just wastes
             # space. this behaviour may be overridden in an instance
             properties['nosy'] = hyperdb.Multilink("user", do_journal="no")
-        if not properties.has_key('superseder'):
+        if 'superseder' not in properties:
             properties['superseder'] = hyperdb.Multilink(classname)
         Class.__init__(self, db, classname, **properties)
 

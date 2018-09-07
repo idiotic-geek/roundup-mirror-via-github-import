@@ -62,7 +62,7 @@ class Indexer(IndexerBase):
         if os.path.exists(self.indexdb_path):
             shutil.rmtree(self.indexdb_path)
         os.makedirs(self.indexdb_path)
-        os.chmod(self.indexdb_path, 0775)
+        os.chmod(self.indexdb_path, 0o775)
         open(os.path.join(self.indexdb_path, 'version'), 'w').write('1\n')
         self.reindex = 1
         self.changed = 1
@@ -189,7 +189,10 @@ class Indexer(IndexerBase):
         else:
             segments = ['-','#']
             for word in wordlist:
-                segments.append(word[0].upper())
+                initchar = word[0].upper()
+                if initchar not in self.segments:
+                    initchar = '_'
+                segments.append(initchar)
 
         # Load the segments
         for segment in segments:
@@ -204,7 +207,7 @@ class Indexer(IndexerBase):
                 dbslice = marshal.loads(pickle_str)
                 if dbslice.get('WORDS'):
                     # if it has some words, add them
-                    for word, entry in dbslice['WORDS'].iteritems():
+                    for word, entry in dbslice['WORDS'].items():
                         db['WORDS'][word] = entry
                 if dbslice.get('FILES'):
                     # if it has some files, add them
@@ -240,8 +243,11 @@ class Indexer(IndexerBase):
         segdicts = {}                           # Need batch of empty dicts
         for segment in letters:
             segdicts[segment] = {}
-        for word, entry in self.words.iteritems():  # Split into segment dicts
+        for word, entry in self.words.items():  # Split into segment dicts
             initchar = word[0].upper()
+            if initchar not in letters:
+                # if it's a unicode character, add it to the '_' segment
+                initchar = '_'
             segdicts[initchar][word] = entry
 
         # save
@@ -251,7 +257,7 @@ class Indexer(IndexerBase):
             filename = self.indexdb + initchar
             pickle_fh = open(filename, 'wb')
             pickle_fh.write(zlib.compress(pickle_str))
-            os.chmod(filename, 0664)
+            os.chmod(filename, 0o664)
 
         # save done
         self.changed = 0
@@ -269,7 +275,7 @@ class Indexer(IndexerBase):
         del self.fileids[file_index]
 
         # The much harder part, cleanup the word index
-        for key, occurs in self.words.iteritems():
+        for key, occurs in self.words.items():
             if file_index in occurs:
                 del occurs[file_index]
 

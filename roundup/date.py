@@ -17,6 +17,7 @@
 
 """Date, time and time interval handling.
 """
+from __future__ import print_function
 __docformat__ = 'restructuredtext'
 
 import calendar
@@ -29,7 +30,15 @@ try:
 except ImportError:
     pytz = None
 
+try:
+    cmp
+except NameError:
+    # Python 3.
+    def cmp(a, b):
+        return (a > b) - (a < b)
+
 from roundup import i18n
+from roundup.anypy.strings import is_us
 
 # no, I don't know why we must anchor the date RE when we only ever use it
 # in a match()
@@ -141,7 +150,7 @@ def get_timezone(tz):
     elif tz in _tzoffsets:
         return SimpleTimezone(_tzoffsets[tz], tz)
     else:
-        raise KeyError, tz
+        raise KeyError(tz)
 
 def _utc_to_local(y,m,d,H,M,S,tz):
     TZ = get_timezone(tz)
@@ -348,7 +357,7 @@ class Date:
             # making sure we match the precision of serialise()
             self.second = min(self.second, 59.999)
         except:
-            raise ValueError, 'Unknown spec %r' % (spec,)
+            raise ValueError('Unknown spec %r' % (spec,))
 
     def now(self):
         """ To be able to override for testing
@@ -372,9 +381,9 @@ class Date:
         # not serialised data, try usual format
         m = date_re.match(spec)
         if m is None:
-            raise ValueError, self._('Not a date spec: %r '
+            raise ValueError(self._('Not a date spec: %r '
                 '("yyyy-mm-dd", "mm-dd", "HH:MM", "HH:MM:SS" or '
-                '"yyyy-mm-dd.HH:MM:SS.SSS")' % spec)
+                '"yyyy-mm-dd.HH:MM:SS.SSS")' % spec))
 
         info = m.groupdict()
 
@@ -447,9 +456,9 @@ class Date:
             try:
                 self.applyInterval(Interval(info['o'], allowdate=0))
             except ValueError:
-                raise ValueError, self._('%r not a date / time spec '
+                raise ValueError(self._('%r not a date / time spec '
                     '"yyyy-mm-dd", "mm-dd", "HH:MM", "HH:MM:SS" or '
-                    '"yyyy-mm-dd.HH:MM:SS.SSS"')%(spec,)
+                    '"yyyy-mm-dd.HH:MM:SS.SSS"')%(spec,))
 
         if info.get('tz', None):
             tz     = info ['tz'].strip ()
@@ -563,9 +572,9 @@ class Date:
             sign = -1
             diff = -diff
         S = diff%60
-        M = (diff/60)%60
-        H = (diff/(60*60))%24
-        d = diff/(24*60*60)
+        M = (diff//60)%60
+        H = (diff//(60*60))%24
+        d = diff//(24*60*60)
         return Interval((0, 0, d, H, M, S), sign=sign,
             translator=self.translator)
 
@@ -583,6 +592,19 @@ class Date:
         if int_seconds:
             return cmp(int(self.second), int(other.second))
         return cmp(self.second, other.second)
+
+    def __lt__(self, other):
+        return self.__cmp__(other) < 0
+    def __le__(self, other):
+        return self.__cmp__(other) <= 0
+    def __eq__(self, other):
+        return self.__cmp__(other) == 0
+    def __ne__(self, other):
+        return self.__cmp__(other) != 0
+    def __gt__(self, other):
+        return self.__cmp__(other) > 0
+    def __ge__(self, other):
+        return self.__cmp__(other) >= 0
 
     def __str__(self):
         """Return this date as a string in the yyyy-mm-dd.hh:mm:ss format."""
@@ -736,9 +758,15 @@ class Interval:
     ):
         """Construct an interval given a specification."""
         self.setTranslator(translator)
-        if isinstance(spec, (int, float, long)):
+        try:
+            # Python 2.
+            arith_types = (int, float, long)
+        except NameError:
+            # Python 3.
+            arith_types = (int, float)
+        if isinstance(spec, arith_types):
             self.from_seconds(spec)
-        elif isinstance(spec, basestring):
+        elif is_us(spec):
             self.set(spec, allowdate=allowdate, add_granularity=add_granularity)
         elif isinstance(spec, Interval):
             (self.sign, self.year, self.month, self.day, self.hour,
@@ -783,9 +811,9 @@ class Interval:
         if not m:
             m = interval_re.match(spec)
             if not m:
-                raise ValueError, self._('Not an interval spec: "%s"'
+                raise ValueError(self._('Not an interval spec: "%s"'
                     ' ([+-] [#y] [#m] [#w] [#d] [[[H]H:MM]:SS] [date spec])'
-                    % spec)
+                    % spec))
         else:
             allowdate = 0
 
@@ -806,9 +834,9 @@ class Interval:
 
         # make sure it's valid
         if not valid and not info['D']:
-            raise ValueError, self._('Not an interval spec: "%s"'
+            raise ValueError(self._('Not an interval spec: "%s"'
                 ' ([+-] [#y] [#m] [#w] [#d] [[[H]H:MM]:SS])'
-                % spec)
+                % spec))
 
         if self.week:
             self.day = self.day + self.week*7
@@ -827,13 +855,53 @@ class Interval:
                 y = now - (date + self)
                 self.__init__(y.get_tuple())
 
-    def __cmp__(self, other):
+    def __lt__(self, other):
         """Compare this interval to another interval."""
 
         if other is None:
             # we are always larger than None
-            return 1
-        return cmp(self.as_seconds(), other.as_seconds())
+            return False
+        return self.as_seconds() < other.as_seconds()
+
+    def __le__(self, other):
+        """Compare this interval to another interval."""
+
+        if other is None:
+            # we are always larger than None
+            return False
+        return self.as_seconds() <= other.as_seconds()
+
+    def __eq__(self, other):
+        """Compare this interval to another interval."""
+
+        if other is None:
+            # we are always larger than None
+            return False
+        return self.as_seconds() == other.as_seconds()
+
+    def __ne__(self, other):
+        """Compare this interval to another interval."""
+
+        if other is None:
+            # we are always larger than None
+            return True
+        return self.as_seconds() != other.as_seconds()
+
+    def __gt__(self, other):
+        """Compare this interval to another interval."""
+
+        if other is None:
+            # we are always larger than None
+            return True
+        return self.as_seconds() > other.as_seconds()
+
+    def __ge__(self, other):
+        """Compare this interval to another interval."""
+
+        if other is None:
+            # we are always larger than None
+            return True
+        return self.as_seconds() >= other.as_seconds()
 
     def __str__(self):
         """Return this interval as a string."""
@@ -866,7 +934,7 @@ class Interval:
             i = fixTimeOverflow(i)
             return Interval(i, translator=self.translator)
         # nope, no idea what to do with this other...
-        raise TypeError, "Can't add %r"%other
+        raise TypeError("Can't add %r"%other)
 
     def __sub__(self, other):
         if isinstance(other, Date):
@@ -886,9 +954,9 @@ class Interval:
             i = fixTimeOverflow(i)
             return Interval(i, translator=self.translator)
         # nope, no idea what to do with this other...
-        raise TypeError, "Can't add %r"%other
+        raise TypeError("Can't add %r"%other)
 
-    def __div__(self, other):
+    def __truediv__(self, other):
         """ Divide this interval by an int value.
 
             Can't divide years and months sensibly in the _same_
@@ -897,13 +965,13 @@ class Interval:
         try:
             other = float(other)
         except TypeError:
-            raise ValueError, "Can only divide Intervals by numbers"
+            raise ValueError("Can only divide Intervals by numbers")
 
         y, m, d, H, M, S = (self.year, self.month, self.day,
             self.hour, self.minute, self.second)
         if y or m:
             if d or H or M or S:
-                raise ValueError, "Can't divide Interval with date and time"
+                raise ValueError("Can't divide Interval with date and time")
             months = self.year*12 + self.month
             months *= self.sign
 
@@ -911,7 +979,7 @@ class Interval:
 
             sign = months<0 and -1 or 1
             m = months%12
-            y = months / 12
+            y = months // 12
             return Interval((sign, y, m, 0, 0, 0, 0),
                 translator=self.translator)
 
@@ -925,13 +993,15 @@ class Interval:
             sign = seconds<0 and -1 or 1
             seconds *= sign
             S = seconds%60
-            seconds /= 60
+            seconds //= 60
             M = seconds%60
-            seconds /= 60
+            seconds //= 60
             H = seconds%24
-            d = seconds / 24
+            d = seconds // 24
             return Interval((sign, 0, 0, d, H, M, S),
                 translator=self.translator)
+    # Python 2 compatibility:
+    __div__ = __truediv__
 
     def __repr__(self):
         return '<Interval %s>'%self.__str__()
@@ -939,7 +1009,7 @@ class Interval:
     def pretty(self):
         ''' print up the date date using one of these nice formats..
         '''
-        _quarters = self.minute / 15
+        _quarters = self.minute // 15
         if self.year:
             s = self.ngettext("%(number)s year", "%(number)s years",
                 self.year) % {'number': self.year}
@@ -1011,7 +1081,7 @@ class Interval:
         Months are counted as 30 days, years as 365 days. Returns a Long
         int.
         '''
-        n = self.year * 365L
+        n = self.year * 365
         n = n + self.month * 30
         n = n + self.day
         n = n * 24
@@ -1033,11 +1103,11 @@ class Interval:
         else:
             self.sign = 1
         self.second = val % 60
-        val = val / 60
+        val = val // 60
         self.minute = val % 60
-        val = val / 60
+        val = val // 60
         self.hour = val % 24
-        val = val / 24
+        val = val // 24
         self.day = val
         self.month = self.year = 0
 
@@ -1072,17 +1142,17 @@ def fixTimeOverflow(time):
         sign = seconds<0 and -1 or 1
         seconds *= sign
         S = seconds%60
-        seconds /= 60
+        seconds //= 60
         M = seconds%60
-        seconds /= 60
+        seconds //= 60
         H = seconds%24
-        d = seconds / 24
+        d = seconds // 24
     else:
         months = y*12 + m
         sign = months<0 and -1 or 1
         months *= sign
         m = months%12
-        y = months/12
+        y = months//12
 
     return (sign, y, m, d, H, M, S)
 
@@ -1191,7 +1261,7 @@ class Range:
                 self.from_value = Type(spec, **params)
                 self.to_value = Type(spec, add_granularity=True, **params)
             else:
-                raise ValueError, "Invalid range"
+                raise ValueError("Invalid range")
 
     def __str__(self):
         return "from %s to %s" % (self.from_value, self.to_value)
@@ -1204,30 +1274,30 @@ def test_range():
         "2002-11-10; 2002-12-12", "; 20:00 +1d", '2002-10-12')
     rispecs = ('from -1w 2d 4:32 to 4d', '-2w 1d')
     for rspec in rspecs:
-        print '>>> Range("%s")' % rspec
-        print `Range(rspec, Date)`
-        print
+        print('>>> Range("%s")' % rspec)
+        print(repr(Range(rspec, Date)))
+        print()
     for rspec in rispecs:
-        print '>>> Range("%s")' % rspec
-        print `Range(rspec, Interval)`
-        print
+        print('>>> Range("%s")' % rspec)
+        print(repr(Range(rspec, Interval)))
+        print()
 
 def test():
     intervals = ("  3w  1  d  2:00", " + 2d", "3w")
     for interval in intervals:
-        print '>>> Interval("%s")'%interval
-        print `Interval(interval)`
+        print('>>> Interval("%s")'%interval)
+        print(repr(Interval(interval)))
 
     dates = (".", "2000-06-25.19:34:02", ". + 2d", "1997-04-17", "01-25",
         "08-13.22:13", "14:25", '2002-12')
     for date in dates:
-        print '>>> Date("%s")'%date
-        print `Date(date)`
+        print('>>> Date("%s")'%date)
+        print(repr(Date(date)))
 
     sums = ((". + 2d", "3w"), (".", "  3w  1  d  2:00"))
     for date, interval in sums:
-        print '>>> Date("%s") + Interval("%s")'%(date, interval)
-        print `Date(date) + Interval(interval)`
+        print('>>> Date("%s") + Interval("%s")'%(date, interval))
+        print(repr(Date(date) + Interval(interval)))
 
 if __name__ == '__main__':
     test()

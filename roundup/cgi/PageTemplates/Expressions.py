@@ -22,8 +22,8 @@ Page Template-specific implementation of TALES, with handlers
 for Python expressions, string literals, and paths.
 """
 
-import re, sys
-from TALES import Engine, CompilerError, _valid_name, NAME_RE, \
+import collections, re, sys
+from .TALES import Engine, CompilerError, _valid_name, NAME_RE, \
      Undefined, Default, _parse_expr
 
 
@@ -31,7 +31,7 @@ _engine = None
 def getEngine():
     global _engine
     if _engine is None:
-        from PathIterator import Iterator
+        from .PathIterator import Iterator
         _engine = Engine(Iterator)
         installHandlers(_engine)
     return _engine
@@ -46,7 +46,7 @@ def installHandlers(engine):
     reg('not', NotExpr)
     reg('defer', DeferExpr)
 
-from PythonExpr import getSecurityManager, PythonExpr
+from .PythonExpr import getSecurityManager, PythonExpr
 guarded_getattr = getattr
 try:
     from zExceptions import Unauthorized
@@ -57,7 +57,7 @@ except ImportError:
 def acquisition_security_filter(orig, inst, name, v, real_validate):
     if real_validate(orig, inst, name, v):
         return 1
-    raise Unauthorized, name
+    raise Unauthorized(name)
 
 def call_with_ns(f, ns, arg=1):
     if arg==2:
@@ -86,7 +86,7 @@ def render(ob, ns):
         ob = call_with_ns(ob.__render_with_namespace__, ns)
     else:
         base = ob
-        if callable(base):
+        if isinstance(base, collections.Callable):
             try:
                 if getattr(base, 'isDocTemp', 0):
                     ob = call_with_ns(ob, ns, 2)
@@ -102,7 +102,7 @@ class SubPathExpr:
         self._path = path = path.strip().split('/')
         self._base = base = path.pop(0)
         if base and not _valid_name(base):
-            raise CompilerError, 'Invalid variable name "%s"' % base
+            raise CompilerError('Invalid variable name "%s"' % base)
         # Parse path
         self._dp = dp = []
         for i in range(len(path)):
@@ -193,10 +193,10 @@ class PathExpr:
         return self._eval(econtext)
 
     def __str__(self):
-        return '%s expression %s' % (self._name, `self._s`)
+        return '%s expression %s' % (self._name, repr(self._s))
 
     def __repr__(self):
-        return '%s:%s' % (self._name, `self._s`)
+        return '%s:%s' % (self._name, repr(self._s))
 
 
 _interp = re.compile(r'\$(%(n)s)|\${(%(n)s(?:/[^}]*)*)}' % {'n': NAME_RE})
@@ -220,7 +220,7 @@ class StringExpr:
                     exp = exp[m.end():]
                     m = _interp.search(exp)
                 if '$' in exp:
-                    raise CompilerError, (
+                    raise CompilerError(
                         '$ must be doubled or followed by a simple path')
                 parts.append(exp)
             expr = ''.join(parts)
@@ -237,10 +237,10 @@ class StringExpr:
         return self._expr % tuple(vvals)
 
     def __str__(self):
-        return 'string expression %s' % `self._s`
+        return 'string expression %s' % repr(self._s)
 
     def __repr__(self):
-        return 'string:%s' % `self._s`
+        return 'string:%s' % repr(self._s)
 
 class NotExpr:
     def __init__(self, name, expr, compiler):
@@ -254,7 +254,7 @@ class NotExpr:
         return (not econtext.evaluateBoolean(self._c)) and 1 or 0
 
     def __repr__(self):
-        return 'not:%s' % `self._s`
+        return 'not:%s' % repr(self._s)
 
 class DeferWrapper:
     def __init__(self, expr, econtext):
@@ -276,7 +276,7 @@ class DeferExpr:
         return DeferWrapper(self._c, econtext)
 
     def __repr__(self):
-        return 'defer:%s' % `self._s`
+        return 'defer:%s' % repr(self._s)
 
 class TraversalError:
     def __init__(self, path, name):
@@ -308,7 +308,7 @@ def restrictedTraverse(object, path, securityManager,
             o = object[name]
             # Check access to the item.
             if not validate(object, object, name, o):
-                raise Unauthorized, name
+                raise Unauthorized(name)
             object = o
             continue
 

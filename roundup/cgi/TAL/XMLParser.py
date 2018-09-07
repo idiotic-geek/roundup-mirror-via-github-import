@@ -13,6 +13,7 @@
 ##############################################################################
 # Modifications for Roundup:
 # 1. commented out zLOG references
+# 2. use roundup.anypy.urllib_
 """
 Generic expat-based XML parser base class.
 """
@@ -48,6 +49,10 @@ class XMLParser:
 
     def __init__(self, encoding=None):
         self.parser = p = self.createParser()
+        # Make sure we don't get fed unicode strings in Python 2 as we
+        # can't handle those
+        if hasattr(self.parser, 'returns_unicode'):
+            self.parser.returns_unicode = False
         if self.ordered_attributes:
             try:
                 self.parser.ordered_attributes = self.ordered_attributes
@@ -83,8 +88,8 @@ class XMLParser:
         self.parser.Parse(s, 1)
 
     def parseURL(self, url):
-        import urllib
-        self.parseStream(urllib.urlopen(url))
+        import roundup.anypy.urllib_
+        self.parseStream(roundup.anypy.urllib_.urlopen(url))
 
     def parseStream(self, stream):
         self.parser.ParseFile(stream)

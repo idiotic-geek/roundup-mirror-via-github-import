@@ -23,8 +23,8 @@ An implementation of a generic TALES engine
 import re, sys
 from roundup.cgi import ZTUtils
 from weakref import ref
-from MultiMapping import MultiMapping
-from GlobalTranslationService import getGlobalTranslationService
+from .MultiMapping import MultiMapping
+from .GlobalTranslationService import getGlobalTranslationService
 
 ustr = str
 
@@ -112,10 +112,10 @@ class Engine:
 
     def registerType(self, name, handler):
         if not _valid_name(name):
-            raise RegistrationError, 'Invalid Expression type "%s".' % name
+            raise RegistrationError('Invalid Expression type "%s".' % name)
         types = self.types
-        if types.has_key(name):
-            raise RegistrationError, (
+        if name in types:
+            raise RegistrationError(
                 'Multiple registrations for Expression type "%s".' %
                 name)
         types[name] = handler
@@ -134,7 +134,7 @@ class Engine:
         try:
             handler = self.types[type]
         except KeyError:
-            raise CompilerError, (
+            raise CompilerError(
                 'Unrecognized expression type "%s".' % type)
         return handler(type, expr, self)
 
@@ -231,7 +231,7 @@ class Context:
         text = self.evaluate(expr)
         if text is Default or text is None:
             return text
-        if isinstance(text, unicode):
+        if isinstance(text, type(u'')):
             return text
         else:
             return ustr(text)
@@ -295,4 +295,4 @@ class SimpleExpr:
     def __call__(self, econtext):
         return self._name, self._expr
     def __repr__(self):
-        return '<SimpleExpr %s %s>' % (self._name, `self._expr`)
+        return '<SimpleExpr %s %s>' % (self._name, repr(self._expr))
