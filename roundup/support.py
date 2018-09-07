@@ -2,6 +2,7 @@
 places in Roundup code.
 """
 
+from __future__ import print_function
 __docformat__ = 'restructuredtext'
 
 import os, time, sys, re
@@ -14,11 +15,12 @@ class TruthDict:
             self.keys = {}
             for col in keys:
                 self.keys[col] = 1
-        else:
-            self.__getitem__ = lambda name: 1
 
     def __getitem__(self, name):
-        return self.keys.has_key(name)
+        if hasattr(self, 'keys'):
+            return name in self.keys
+        else:
+            return True
 
 def ensureParentsExist(dest):
     if not os.path.exists(os.path.dirname(dest)):
@@ -69,25 +71,27 @@ class Progress:
         self.total = len(sequence)
         self.start = self.now = time.time()
         self.num = 0
-        self.stepsize = self.total / 100 or 1
+        self.stepsize = self.total // 100 or 1
         self.steptimes = []
         self.display()
 
     def __iter__(self): return self
 
-    def next(self):
+    def __next__(self):
         self.num += 1
 
         if self.num > self.total:
-            print self.info, 'done', ' '*(75-len(self.info)-6)
+            print(self.info, 'done', ' '*(75-len(self.info)-6))
             sys.stdout.flush()
-            return self.sequence.next()
+            return next(self.sequence)
 
         if self.num % self.stepsize:
-            return self.sequence.next()
+            return next(self.sequence)
 
         self.display()
-        return self.sequence.next()
+        return next(self.sequence)
+    # Python 2 compatibility:
+    next = __next__
 
     def display(self):
         # figure how long we've spent - guess how long to go

@@ -1,3 +1,4 @@
+from __future__ import print_function
 import unittest
 from cgi import FieldStorage, MiniFieldStorage
 
@@ -7,7 +8,9 @@ from roundup.cgi.actions import *
 from roundup.cgi.client import add_message
 from roundup.cgi.exceptions import Redirect, Unauthorised, SeriousError, FormError
 
-from mocknull import MockNull
+from roundup.anypy.cmp_ import NoneAndDictComparable
+
+from .mocknull import MockNull
 
 def true(*args, **kwargs):
     return 1
@@ -44,7 +47,7 @@ class ShowActionTestCase(ActionTestCase):
                 excName = exception.__name__
             else:
                 excName = str(exception)
-            raise self.failureException, excName
+            raise self.failureException(excName)
 
     def testShowAction(self):
         self.client.base = 'BASE/'
@@ -152,7 +155,7 @@ class FakeFilterVarsTestCase(SearchActionTestCase):
 
     def testNumKey(self): # testing patch: http://hg.python.org/tracker/roundup/rev/98508a47c126
         for val in [ "-1000a", "test", "o0.9999", "o0", "1.00/10" ]:
-            print "testing ", val
+            print("testing ", val)
             self.client.db.classes.get_transitive_prop = lambda x: hyperdb.Number()
             self.form.value.append(MiniFieldStorage('foo', val)) # invalid numbers
             self.assertRaises(FormError, self.action.fakeFilterVars)
@@ -166,7 +169,7 @@ class FakeFilterVarsTestCase(SearchActionTestCase):
 
     def testIntKey(self): # testing patch: http://hg.python.org/tracker/roundup/rev/98508a47c126
         for val in [ "-1000a", "test", "-5E-5", "0.9999", "0.0", "1.000", "0456", "1E4" ]:
-            print "testing ", val
+            print("testing ", val)
             self.client.db.classes.get_transitive_prop = lambda x: hyperdb.Integer()
             self.form.value.append(MiniFieldStorage('foo', val))
             self.assertRaises(FormError, self.action.fakeFilterVars)
@@ -253,7 +256,7 @@ class LoginTestCase(ActionTestCase):
                 excName = exception.__name__
             else:
                 excName = str(exception)
-            raise self.failureException, excName
+            raise self.failureException(excName)
 
     def assertLoginLeavesMessages(self, messages, username=None, password=None):
         if username is not None:
@@ -324,7 +327,7 @@ class LoginTestCase(ActionTestCase):
 
         # test if we are logged out; should kill the @action=logout
         self.form.value[:] = []         # clear out last test's setup values
-        self.assertLoginRaisesRedirect("http://whoami.com/path/issue39?%40startwith=0&%40pagesize=50",
+        self.assertLoginRaisesRedirect("http://whoami.com/path/issue39?%40pagesize=50&%40startwith=0",
                                  'foo', 'right', "http://whoami.com/path/issue39?@action=logout&@pagesize=50&@startwith=0")
 
     def testInvalidLoginRedirect(self):
@@ -335,12 +338,12 @@ class LoginTestCase(ActionTestCase):
         self.client.opendb = opendb
 
         # basic test with query
-        self.assertLoginRaisesRedirect("http://whoami.com/path/issue?%40error_message=Invalid+login&%40action=search",
+        self.assertLoginRaisesRedirect("http://whoami.com/path/issue?%40action=search&%40error_message=Invalid+login",
                                  'foo', 'wrong', "http://whoami.com/path/issue?@action=search")
 
         # test that old messages are removed
         self.form.value[:] = []         # clear out last test's setup values
-        self.assertLoginRaisesRedirect("http://whoami.com/path/issue?%40error_message=Invalid+login&%40action=search",
+        self.assertLoginRaisesRedirect("http://whoami.com/path/issue?%40action=search&%40error_message=Invalid+login",
                                  'foo', 'wrong', "http://whoami.com/path/issue?@action=search&@ok_messagehurrah+we+win&@error_message=blam")
 
         # test when there is no __came_from specified
@@ -416,7 +419,8 @@ class EditItemActionTestCase(ActionTestCase):
             self.action.handle()
         except Redirect as msg:
             pass
-        self.assertEqual(expect, self.result)
+        self.assertEqual(sorted(expect, key=NoneAndDictComparable),
+                         sorted(self.result, key=NoneAndDictComparable))
 
     def testFileAttach(self):
         expect = \

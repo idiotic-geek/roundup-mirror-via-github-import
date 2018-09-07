@@ -25,9 +25,9 @@ import sys
 from roundup.cgi.TAL.TALParser import TALParser
 from roundup.cgi.TAL.HTMLTALParser import HTMLTALParser
 from roundup.cgi.TAL.TALGenerator import TALGenerator
-# Do not use cStringIO here!  It's not unicode aware. :(
-from roundup.cgi.TAL.TALInterpreter import TALInterpreter, FasterStringIO
-from Expressions import getEngine
+from roundup.cgi.TAL.TALInterpreter import TALInterpreter
+from .Expressions import getEngine
+from roundup.anypy.strings import StringIO
 
 
 class PageTemplate:
@@ -47,7 +47,7 @@ class PageTemplate:
     def StringIO(self):
         # Third-party products wishing to provide a full Unicode-aware
         # StringIO can do so by monkey-patching this method.
-        return FasterStringIO()
+        return StringIO()
 
     def pt_edit(self, text, content_type):
         if content_type:
@@ -81,7 +81,7 @@ class PageTemplate:
         __traceback_supplement__ = (PageTemplateTracebackSupplement, self)
 
         if self._v_errors:
-            raise PTRuntimeError, 'Page Template %s has errors.' % self.id
+            raise PTRuntimeError('Page Template %s has errors.' % self.id)
         output = self.StringIO()
         c = self.pt_getContext()
         c.update(extra_context)
@@ -93,7 +93,7 @@ class PageTemplate:
         return output.getvalue()
 
     def __call__(self, *args, **kwargs):
-        if not kwargs.has_key('args'):
+        if 'args' not in kwargs:
             kwargs['args'] = args
         return self.pt_render(extra_context={'options': kwargs})
 
@@ -119,13 +119,13 @@ class PageTemplate:
             self._cook()
         __traceback_supplement__ = (PageTemplateTracebackSupplement, self)
         if self._v_errors:
-            raise PTRuntimeError, 'Page Template %s has errors.' % self.id
+            raise PTRuntimeError('Page Template %s has errors.' % self.id)
         return self._v_macros
 
     def __getattr__(self, name):
         if name == 'macros':
             return self.pt_macros()
-        raise AttributeError, name
+        raise AttributeError(name)
 
     def pt_source_file(self):
         return None  # Unknown.

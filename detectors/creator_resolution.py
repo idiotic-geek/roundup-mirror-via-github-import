@@ -9,7 +9,7 @@ def creator_resolution(db, cl, nodeid, newvalues):
     "confirm-done" first though, but "classic" Roundup doesn't have that
     status)
     '''
-    if not newvalues.has_key('status'):
+    if 'status' not in newvalues:
         return
 
     # get the resolved state ID
@@ -24,7 +24,7 @@ def creator_resolution(db, cl, nodeid, newvalues):
     if assignedto == creator:
         if db.getuid() != creator:
             name = db.user.get(creator, 'username')
-            raise Reject, 'Only the creator (%s) may close this issue'%name
+            raise Reject('Only the creator (%s) may close this issue'%name)
         return
 
     # set the assignedto and status

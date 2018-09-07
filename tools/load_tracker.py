@@ -5,13 +5,14 @@ Usage: %s <tracker home> <N>
 Load up the indicated tracker with N issues and N/100 users.
 '''
 
+from __future__ import print_function
 import sys, os, random
 from roundup import instance
 
 # open the instance
 if len(sys.argv) < 2:
-    print "Error: Not enough arguments"
-    print __doc__.strip()%(sys.argv[0])
+    print("Error: Not enough arguments")
+    print(__doc__.strip()%(sys.argv[0]))
     sys.exit(1)
 tracker_home = sys.argv[1]
 N = int(sys.argv[2])
@@ -56,23 +57,23 @@ try:
         db.user.lookup('alpha0')
     except:
         # add some users
-        M = N/100
+        M = N//100
         for i in range(M):
-            print '\ruser', i, '       ',
+            print('\ruser', i, '       ', end=' ')
             sys.stdout.flush()
-            if i/17 == 0:
+            if i//17 == 0:
                 db.user.create(username=names[i%17])
             else:
-                db.user.create(username=names[i%17]+str(i/17))
+                db.user.create(username=names[i%17]+str(i//17))
 
     # assignable user list
     users = db.user.list()
     users.remove(db.user.lookup('anonymous'))
-    print
+    print()
 
     # now create the issues
     for i in range(N):
-        print '\rissue', i, '       ',
+        print('\rissue', i, '       ', end=' ')
         sys.stdout.flush()
         # in practise, about 90% of issues are resolved
         if random.random() > .9:
@@ -86,7 +87,7 @@ try:
             assignedto=random.choice(users))
         if not i%1000:
             db.commit()
-    print
+    print()
 
     db.commit()
 finally:

@@ -17,8 +17,6 @@
 Common definitions used by TAL and METAL compilation an transformation.
 """
 
-from types import ListType, TupleType
-
 #from ITALES import ITALESErrorInfo
 
 TAL_VERSION = "1.4"
@@ -122,19 +120,19 @@ def parseAttributeReplacements(arg, xml):
     for part in splitParts(arg):
         m = _attr_re.match(part)
         if not m:
-            raise TALError("Bad syntax in attributes: " + `part`)
+            raise TALError("Bad syntax in attributes: " + repr(part))
         name, expr = m.group(1, 2)
         if not xml:
             name = name.lower()
-        if dict.has_key(name):
-            raise TALError("Duplicate attribute name in attributes: " + `part`)
+        if name in dict:
+            raise TALError("Duplicate attribute name in attributes: " + repr(part))
         dict[name] = expr
     return dict
 
 def parseSubstitution(arg, position=(None, None)):
     m = _subst_re.match(arg)
     if not m:
-        raise TALError("Bad syntax in substitution text: " + `arg`, position)
+        raise TALError("Bad syntax in substitution text: " + repr(arg), position)
     key, expr = m.group(1, 2)
     if not key:
         key = "text"
@@ -156,7 +154,7 @@ def isCurrentVersion(program):
 
 def getProgramMode(program):
     version = getProgramVersion(program)
-    if (version == TAL_VERSION and isinstance(program[1], TupleType) and
+    if (version == TAL_VERSION and isinstance(program[1], tuple) and
         len(program[1]) == 2):
         opcode, mode = program[1]
         if opcode == "mode":
@@ -165,7 +163,7 @@ def getProgramMode(program):
 
 def getProgramVersion(program):
     if (len(program) >= 2 and
-        isinstance(program[0], TupleType) and len(program[0]) == 2):
+        isinstance(program[0], tuple) and len(program[0]) == 2):
         opcode, version = program[0]
         if opcode == "version":
             return version

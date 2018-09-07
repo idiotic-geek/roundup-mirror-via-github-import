@@ -26,7 +26,7 @@ runs in the same server as all your other Zope stuff, so it does have _some_
 advantages over regular CGI :)
 '''
 
-import urlparse
+from roundup.anypy import urllib_
 
 from Globals import InitializeClass, HTMLFile
 from OFS.SimpleItem import Item
@@ -88,21 +88,21 @@ class FormWrapper:
     def __getitem__(self, item):
         entry = self.__form[item]
         if isinstance(entry, type([])):
-            entry = map(FormItem, entry)
+            entry = list(map(FormItem, entry))
         else:
             entry = FormItem(entry)
         return entry
     def __iter__(self):
         return iter(self.__form)
     def getvalue(self, key, default=None):
-        if self.__form.has_key(key):
+        if key in self.__form:
             return self.__form[key]
         else:
             return default
     def has_key(self, item):
-        return self.__form.has_key(item)
+        return item in self.__form
     def keys(self):
-        return self.__form.keys()
+        return list(self.__form.keys())
 
     def __repr__(self):
         return '<ZRoundup.FormWrapper %r>'%self.__form
@@ -141,7 +141,7 @@ class ZRoundup(Item, PropertyManager, Implicit, Persistent):
         env = self.REQUEST.environ
 
         # figure out the path components to set
-        url = urlparse.urlparse( self.absolute_url() )
+        url = urllib_.urlparse( self.absolute_url() )
         path = url[2]
         path_components = path.split( '/' )
 
@@ -168,10 +168,10 @@ class ZRoundup(Item, PropertyManager, Implicit, Persistent):
         # PATH_INFO, as defined by the CGI spec, has the *real* request path
         orig_path = self.REQUEST.environ['PATH_INFO']
         if orig_path[-1] != '/' : 
-            url = urlparse.urlparse( self.absolute_url() )
+            url = urllib_.urlparse( self.absolute_url() )
             url = list( url ) # make mutable
             url[2] = url[2]+'/' # patch
-            url = urlparse.urlunparse( url ) # reassemble
+            url = urllib_.urlunparse( url ) # reassemble
             RESPONSE = self.REQUEST.RESPONSE
             RESPONSE.setStatus( "MovedPermanently" ) # 301
             RESPONSE.setHeader( "Location" , url )
@@ -208,7 +208,7 @@ class PathElement(Item, Implicit):
             client.main()
             return ''
         except client.NotFound:
-            raise 'NotFound', REQUEST.URL
+            raise Exception('NotFound ' + REQUEST.URL)
             pass
         except:
             import traceback

@@ -23,7 +23,7 @@ from __future__ import print_function
 
 __docformat__ = 'restructuredtext'
 
-import csv, getopt, getpass, os, re, shutil, sys, UserDict, operator
+import csv, getopt, getpass, os, re, shutil, sys, operator
 
 from roundup import date, hyperdb, roundupdb, init, password, token
 from roundup import __version__ as roundup_version
@@ -31,14 +31,15 @@ import roundup.instance
 from roundup.configuration import CoreConfig, NoConfigError
 from roundup.i18n import _
 from roundup.exceptions import UsageError
+from roundup.anypy.my_input import my_input
+from roundup.anypy.strings import repr_export
 
-# Polyglot code
 try:
-    my_input = raw_input
-except NameError:
-    my_input = input
+    from UserDict import UserDict
+except ImportError:
+    from collections import UserDict
 
-class CommandDict(UserDict.UserDict):
+class CommandDict(UserDict):
     """Simple dictionary that lets us do lookups using partial keys.
 
     Original code submitted by Engelbert Gruber.
@@ -158,7 +159,7 @@ matches only one command, e.g. l == li == lis == list."""))
         """ Produce an HTML command list.
         """
         commands = sorted(iter(self.commands.values()),
-            operator.attrgetter('__name__'))
+            key=operator.attrgetter('__name__'))
         for command in commands:
             h = _(command.__doc__).split('\n')
             name = command.__name__[3:]
@@ -1185,7 +1186,7 @@ Erase it? Y/N: """))
                 sys.stdout.write('Exporting %s WITHOUT the files\r\n'%
                     classname)
 
-            f = open(os.path.join(dir, classname+'.csv'), 'wb')
+            f = open(os.path.join(dir, classname+'.csv'), 'w')
             writer = csv.writer(f, colon_separated)
 
             properties = cl.getprops()
@@ -1201,13 +1202,13 @@ Erase it? Y/N: """))
                     sys.stdout.flush()
                 node = cl.getnode(nodeid)
                 exp = cl.export_list(propnames, nodeid)
-                lensum = sum ([len (repr(node[p])) for p in propnames])
+                lensum = sum ([len (repr_export(node[p])) for p in propnames])
                 # for a safe upper bound of field length we add
                 # difference between CSV len and sum of all field lengths
                 d = sum ([len(x) for x in exp]) - lensum
                 assert (d > 0)
                 for p in propnames:
-                    ll = len(repr(node[p])) + d
+                    ll = len(repr_export(node[p])) + d
                     if ll > max_len:
                         max_len = ll
                 writer.writerow(exp)
@@ -1218,7 +1219,7 @@ Erase it? Y/N: """))
             f.close()
 
             # export the journals
-            jf = open(os.path.join(dir, classname+'-journals.csv'), 'wb')
+            jf = open(os.path.join(dir, classname+'-journals.csv'), 'w')
             if self.verbose:
                 sys.stdout.write("\nExporting Journal for %s\n" % classname)
                 sys.stdout.flush()

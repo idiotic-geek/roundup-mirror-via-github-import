@@ -40,6 +40,7 @@ import gettext as gettext_module
 import os
 
 from roundup import msgfmt
+from roundup.anypy.strings import is_us
 
 # List of directories for mo file search (see SF bug 1219689)
 LOCALE_DIRS = [
@@ -79,7 +80,7 @@ def find_locales(language=None):
             if val:
                 languages = val.split(':')
                 break
-    elif isinstance(language, str) or  isinstance(language, unicode):
+    elif is_us(language):
         languages = [language]
     else:
         # 'language' must be iterable
@@ -136,7 +137,8 @@ def get_mofile(languages, localedir, domain=None):
         # see what we've found
         if motime < potime:
             # compile
-            msgfmt.make(pofile, mofile)
+            mo = msgfmt.Msgfmt(pofile).get()
+            open(mofile, 'wb').write(mo)
         elif motime == 0:
             # no files found - proceed to the next locale name
             continue
@@ -202,8 +204,18 @@ def get_translation(language=None, tracker_home=None,
 translation = get_translation()
 # static translation functions
 _ = gettext = translation.gettext
-ugettext = translation.ugettext
+try:
+    # Python 2.
+    ugettext = translation.ugettext
+except AttributeError:
+    # Python 3.
+    ugettext = translation.gettext
 ngettext = translation.ngettext
-ungettext = translation.ungettext
+try:
+    # Python 2.
+    ungettext = translation.ungettext
+except AttributeError:
+    # Python 3.
+    ungettext = translation.ngettext
 
 # vim: set filetype=python sts=4 sw=4 et si :

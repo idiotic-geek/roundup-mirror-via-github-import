@@ -46,9 +46,9 @@ class build_scripts(base):
         if self.target_platform:
             # TODO? allow explicit setting from command line
             target = self.target_platform
-        if cmdopt.has_key("bdist_wininst"):
+        if "bdist_wininst" in cmdopt:
             target = "win32"
-        elif cmdopt.get("bdist", {}).has_key("formats"):
+        elif "formats" in cmdopt.get("bdist", {}):
             formats = cmdopt["bdist"]["formats"][1].split(",")
             if formats[0] == "wininst":
                 target = "win32"
@@ -82,7 +82,7 @@ class build_scripts(base):
             self.scripts = [script + ".bat" for script in self.scripts]
 
         # tweak python path for installations outside main python library
-        if cmdopt.get("install", {}).has_key("prefix"):
+        if "prefix" in cmdopt.get("install", {}):
             prefix = os.path.expanduser(cmdopt['install']['prefix'][1])
             version = '%d.%d'%sys.version_info[:2]
             self.script_preamble = """
@@ -96,7 +96,13 @@ sys.path.insert(1, "%s/lib/python%s/site-packages")
         """ Create each script listed in 'self.scripts'
         """
 
-        to_module = string.maketrans('-/', '_.')
+        try:
+            # Python 3.
+            maketrans = str.maketrans
+        except AttributeError:
+            # Python 2.
+            maketrans = string.maketrans
+        to_module = maketrans('-/', '_.')
 
         self.mkpath(self.build_dir)
         for script in self.scripts:
@@ -111,7 +117,7 @@ sys.path.insert(1, "%s/lib/python%s/site-packages")
                 continue
 
             module = os.path.splitext(os.path.basename(script))[0]
-            module = string.translate(module, to_module)
+            module = module.translate(to_module)
             script_vars = {
                 'python': self.python_executable,
                 'package': self.package_name,
@@ -140,4 +146,4 @@ sys.path.insert(1, "%s/lib/python%s/site-packages")
                         % script_vars)
             finally:
                 file.close()
-                os.chmod(outfile, 0755)
+                os.chmod(outfile, 0o755)

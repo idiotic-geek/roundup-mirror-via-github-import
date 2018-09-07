@@ -4,9 +4,11 @@
 # For license terms see the file COPYING.txt.
 #
 
+from __future__ import print_function
 import unittest, os, shutil, errno, sys, difflib, cgi, re
 
-from xmlrpclib import MultiCall
+from roundup.anypy import xmlrpc_
+MultiCall = xmlrpc_.client.MultiCall
 from roundup.cgi.exceptions import *
 from roundup import init, instance, password, hyperdb, date
 from roundup.xmlrpc import RoundupInstance, RoundupDispatcher
@@ -14,7 +16,7 @@ from roundup.backends import list_backends
 from roundup.hyperdb import String
 from roundup.cgi import TranslationService
 
-import db_test_base
+from . import db_test_base
 from .test_mysql import skip_mysql
 from .test_postgresql import skip_postgresql
 
@@ -31,7 +33,7 @@ class XmlrpcTest(object):
         # open the database
         self.db = self.instance.open('admin')
 
-        print "props_only default", self.db.security.get_props_only_default()
+        print("props_only default", self.db.security.get_props_only_default())
 
         # Get user id (user4 maybe). Used later to get data from db.
         self.joeid = 'user' + self.db.user.create(username='joe',
@@ -51,7 +53,10 @@ class XmlrpcTest(object):
 
         thisdir = os.path.dirname(__file__)
         vars = {}
-        execfile(os.path.join(thisdir, "tx_Source_detector.py"), vars)
+        exec(compile(open(os.path.join(thisdir,
+                                       "tx_Source_detector.py")).read(),
+                     os.path.join(thisdir, "tx_Source_detector.py"), 'exec'),
+             vars)
         vars['init'](self.db)
 
         self.server = RoundupInstance(self.db, self.instance.actions, None)
@@ -96,48 +101,48 @@ class XmlrpcTest(object):
         self.assertEqual(results['content'], 'hello\r\nthere')
 
     def testSchema(self):
-        schema={'status': [('order', '<roundup.hyperdb.Number>'),
-                           ('name', '<roundup.hyperdb.String>')],
+        schema={'status': [('name', '<roundup.hyperdb.String>'),
+                           ('order', '<roundup.hyperdb.Number>')],
                 'keyword': [('name', '<roundup.hyperdb.String>')],
-                'priority': [('order', '<roundup.hyperdb.Number>'),
-                             ('name', '<roundup.hyperdb.String>')],
-                'user': [('username', '<roundup.hyperdb.String>'),
+                'priority': [('name', '<roundup.hyperdb.String>'),
+                             ('order', '<roundup.hyperdb.Number>')],
+                'user': [('address', '<roundup.hyperdb.String>'),
                          ('alternate_addresses', '<roundup.hyperdb.String>'),
+                         ('organisation', '<roundup.hyperdb.String>'),
+                         ('password', '<roundup.hyperdb.Password>'),
+                         ('phone', '<roundup.hyperdb.String>'),
+                         ('queries', '<roundup.hyperdb.Multilink to "query">'),
                          ('realname', '<roundup.hyperdb.String>'),
                          ('roles', '<roundup.hyperdb.String>'),
-                         ('organisation', '<roundup.hyperdb.String>'),
-                         ('queries', '<roundup.hyperdb.Multilink to "query">'),
-                         ('phone', '<roundup.hyperdb.String>'),
-                         ('address', '<roundup.hyperdb.String>'),
                          ('timezone', '<roundup.hyperdb.String>'),
-                         ('password', '<roundup.hyperdb.Password>')],
+                         ('username', '<roundup.hyperdb.String>')],
                 'file': [('content', '<roundup.hyperdb.String>'),
-                         ('type', '<roundup.hyperdb.String>'),
-                         ('name', '<roundup.hyperdb.String>')],
-                'msg': [('files', '<roundup.hyperdb.Multilink to "file">'),
-                        ('inreplyto', '<roundup.hyperdb.String>'),
-                        ('tx_Source', '<roundup.hyperdb.String>'),
-                        ('recipients', '<roundup.hyperdb.Multilink to "user">'),
-                        ('author', '<roundup.hyperdb.Link to "user">'),
-                        ('summary', '<roundup.hyperdb.String>'),
+                         ('name', '<roundup.hyperdb.String>'),
+                         ('type', '<roundup.hyperdb.String>')],
+                'msg': [('author', '<roundup.hyperdb.Link to "user">'),
                         ('content', '<roundup.hyperdb.String>'),
-                        ('messageid', '<roundup.hyperdb.String>'),
                         ('date', '<roundup.hyperdb.Date>'),
+                        ('files', '<roundup.hyperdb.Multilink to "file">'),
+                        ('inreplyto', '<roundup.hyperdb.String>'),
+                        ('messageid', '<roundup.hyperdb.String>'),
+                        ('recipients', '<roundup.hyperdb.Multilink to "user">'),
+                        ('summary', '<roundup.hyperdb.String>'),
+                        ('tx_Source', '<roundup.hyperdb.String>'),
                         ('type', '<roundup.hyperdb.String>')],
-                'query': [('url', '<roundup.hyperdb.String>'),
-                          ('private_for', '<roundup.hyperdb.Link to "user">'),
+                'query': [('klass', '<roundup.hyperdb.String>'),
                           ('name', '<roundup.hyperdb.String>'),
-                          ('klass', '<roundup.hyperdb.String>')],
-                'issue': [('status', '<roundup.hyperdb.Link to "status">'),
+                          ('private_for', '<roundup.hyperdb.Link to "user">'),
+                          ('url', '<roundup.hyperdb.String>')],
+                'issue': [('assignedto', '<roundup.hyperdb.Link to "user">'),
                           ('files', '<roundup.hyperdb.Multilink to "file">'),
-                          ('tx_Source', '<roundup.hyperdb.String>'),
                           ('keyword', '<roundup.hyperdb.Multilink to "keyword">'),
-                          ('title', '<roundup.hyperdb.String>'),
-                          ('nosy', '<roundup.hyperdb.Multilink to "user">'),
                           ('messages', '<roundup.hyperdb.Multilink to "msg">'), 
+                          ('nosy', '<roundup.hyperdb.Multilink to "user">'),
                           ('priority', '<roundup.hyperdb.Link to "priority">'),
-                          ('assignedto', '<roundup.hyperdb.Link to "user">'),
-                          ('superseder', '<roundup.hyperdb.Multilink to "issue">')]}
+                          ('status', '<roundup.hyperdb.Link to "status">'),
+                          ('superseder', '<roundup.hyperdb.Multilink to "issue">'),
+                          ('title', '<roundup.hyperdb.String>'),
+                          ('tx_Source', '<roundup.hyperdb.String>')]}
 
         results = self.server.schema()
         self.assertEqual(results, schema)
@@ -163,8 +168,8 @@ class XmlrpcTest(object):
         # test a bogus action
         with self.assertRaises(Exception) as cm:
             self.server.action('bogus')
-        print cm.exception
-        self.assertEqual(cm.exception.message,
+        print(cm.exception)
+        self.assertEqual(cm.exception.args[0],
                          'action "bogus" is not supported ')
 
     def testAuthDeniedEdit(self):
@@ -206,14 +211,14 @@ class XmlrpcTest(object):
         self.db.security.addPermissionToRole('Project', 'Web Access')
         # Allow viewing keyword
         p = self.db.security.addPermission(name='View', klass='keyword')
-        print "View keyword class: %r"%p
+        print("View keyword class: %r"%p)
         self.db.security.addPermissionToRole('User', p)
         # Allow viewing interesting things (but not keyword) on issue
         # But users might only view issues where they are on nosy
         # (so in the real world the check method would be better)
         p = self.db.security.addPermission(name='View', klass='issue',
             properties=("title", "status"), check=lambda x,y,z: True)
-        print "View keyword class w/ props: %r"%p
+        print("View keyword class w/ props: %r"%p)
         self.db.security.addPermissionToRole('User', p)
         # Allow role "Project" access to whole issue
         p = self.db.security.addPermission(name='View', klass='issue')
@@ -242,12 +247,12 @@ class XmlrpcTest(object):
         # this might check for keyword owner in the real world)
         p = self.db.security.addPermission(name='View', klass='issue',
             check=lambda x,y,z: False)
-        print "View issue class: %r"%p
+        print("View issue class: %r"%p)
         self.db.security.addPermissionToRole('User', p)
         # Allow user to search for issue.status
         p = self.db.security.addPermission(name='Search', klass='issue',
             properties=("status",))
-        print "View Search class w/ props: %r"%p
+        print("View Search class w/ props: %r"%p)
         self.db.security.addPermissionToRole('User', p)
 
         keyw = {'keyword':self.db.keyword.lookup('d1')}

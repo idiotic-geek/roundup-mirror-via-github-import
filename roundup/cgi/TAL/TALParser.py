@@ -15,9 +15,9 @@
 Parse XML and compile to TALInterpreter intermediate code.
 """
 
-from XMLParser import XMLParser
-from TALDefs import XML_NS, ZOPE_I18N_NS, ZOPE_METAL_NS, ZOPE_TAL_NS
-from TALGenerator import TALGenerator
+from .XMLParser import XMLParser
+from .TALDefs import XML_NS, ZOPE_I18N_NS, ZOPE_METAL_NS, ZOPE_TAL_NS
+from .TALGenerator import TALGenerator
 
 class TALParser(XMLParser):
 
@@ -56,8 +56,7 @@ class TALParser(XMLParser):
                 attrlist.append((key, value))
         else:
             # attrs is a dict of {name: value}
-            attrlist = attrs.items()
-            attrlist.sort() # For definiteness
+            attrlist = sorted(attrs.items()) # Sorted for definiteness
         name, attrlist, taldict, metaldict, i18ndict \
               = self.process_ns(name, attrlist)
         attrlist = self.xmlnsattrs() + attrlist
@@ -80,7 +79,7 @@ class TALParser(XMLParser):
                 taldict[keybase] = value
                 item = item + ("tal",)
             elif ns == 'i18n':
-                assert 0, "dealing with i18n: " + `(keybase, value)`
+                assert 0, "dealing with i18n: " + repr((keybase, value))
                 i18ndict[keybase] = value
                 item = item + ('i18n',)
             fixedattrlist.append(item)
@@ -135,8 +134,8 @@ def test():
         file = sys.argv[1]
     p.parseFile(file)
     program, macros = p.getCode()
-    from TALInterpreter import TALInterpreter
-    from DummyEngine import DummyEngine
+    from .TALInterpreter import TALInterpreter
+    from .DummyEngine import DummyEngine
     engine = DummyEngine(macros)
     TALInterpreter(program, macros, engine, sys.stdout, wrap=0)()
 

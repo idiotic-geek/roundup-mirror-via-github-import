@@ -16,9 +16,10 @@ __authors__ = [
     "anatoly techtonik <techtonik@gmail.com>"
 ]
 
+from __future__ import print_function
 import os
 import sys
-import xmlrpclib
+from roundup.anypy import xmlrpc_
 import pprint
 import textwrap
 from optparse import OptionParser
@@ -92,7 +93,7 @@ if __name__ == "__main__":
     (options, args) = parser.parse_args()
 
     url = args[0]
-    roundup_server = xmlrpclib.ServerProxy(url, allow_none=True)
+    roundup_server = xmlrpc_.client.ServerProxy(url, allow_none=True)
     schema = roundup_server.schema()
     if options.raw:
         print(str(schema))

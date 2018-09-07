@@ -8,7 +8,8 @@
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
-import unittest, os, shutil, errno, sys, difflib, cgi, re, StringIO
+from __future__ import print_function
+import unittest, os, shutil, errno, sys, difflib, cgi, re
 
 from roundup.cgi import client, actions, exceptions
 from roundup.cgi.exceptions import FormError, NotFound
@@ -17,14 +18,16 @@ from roundup.cgi.templating import HTMLItem, HTMLRequest, NoTemplate
 from roundup.cgi.templating import HTMLProperty, _HTMLItem, anti_csrf_nonce
 from roundup.cgi.form_parser import FormParser
 from roundup import init, instance, password, hyperdb, date
+from roundup.anypy.strings import StringIO, u2s
 
 # For testing very simple rendering
 from roundup.cgi.engine_zopetal import RoundupPageTemplate
 
-from mocknull import MockNull
+from .mocknull import MockNull
 
-import db_test_base
-from db_test_base import FormTestParent, setupTracker, FileUpload
+from . import db_test_base
+from .db_test_base import FormTestParent, setupTracker, FileUpload
+from .cmp_helper import StringFragmentCmpHelper
 
 class FileList:
     def __init__(self, name, *files):
@@ -69,14 +72,17 @@ class MessageTestCase(unittest.TestCase):
         self.assertEqual(cm([],'<i>x</i>\n<b>x</b>',False),
             ['<i>x</i><br />\n<b>x</b>'])
 
-class FormTestCase(FormTestParent, unittest.TestCase):
+class FormTestCase(FormTestParent, StringFragmentCmpHelper, unittest.TestCase):
 
     def setUp(self):
         FormTestParent.setUp(self)
 
         vars = {}
         thisdir = os.path.dirname(__file__)
-        execfile(os.path.join(thisdir, "tx_Source_detector.py"), vars)
+        exec(compile(open(os.path.join(thisdir,
+                                       "tx_Source_detector.py")).read(),
+                     os.path.join(thisdir, "tx_Source_detector.py"), 'exec'),
+             vars)
         vars['init'](self.db)
 
         test = self.instance.backend.Class(self.db, "test",
@@ -796,10 +802,20 @@ class FormTestCase(FormTestParent, unittest.TestCase):
           <p>deferred</p>
           <p>admin, anonymous</p>
           <p></p>
-          <p><input type="text" name="superseder" value="5000" size="30"></p>
+          <p><input name="superseder" size="30" type="text" value="5000"></p>
          </body>
         </html>
         """.strip ())
+
+    def testXMLTemplate(self):
+        page_template = """<?xml version="1.0" encoding="UTF-8"?><feed xmlns="http://www.w3.org/2005/Atom" xmlns:tal="http://xml.zope.org/namespaces/tal" xmlns:metal="http://xml.zope.org/namespaces/metal"></feed>"""
+        pt = RoundupPageTemplate()
+        pt.pt_edit(page_template, 'application/xml')
+
+        cl = self.setupClient({ }, 'issue',
+                env_addon = {'HTTP_REFERER': 'http://whoami.com/path/'})
+        out = pt.render(cl, 'issue', MockNull())
+        self.assertEquals(out, '<?xml version="1.0" encoding="UTF-8"?><feed\n    xmlns="http://www.w3.org/2005/Atom"/>\n')
 
     def testCsrfProtection(self):
         # need to set SENDMAILDEBUG to prevent
@@ -807,7 +823,7 @@ class FormTestCase(FormTestParent, unittest.TestCase):
         # issue creation. Also delete the file afterwards
         # just tomake sure that someother test looking for
         # SENDMAILDEBUG won't trip over ours.
-        if not os.environ.has_key('SENDMAILDEBUG'):
+        if 'SENDMAILDEBUG' not in os.environ:
             os.environ['SENDMAILDEBUG'] = 'mail-test1.log'
         SENDMAILDEBUG = os.environ['SENDMAILDEBUG']
 
@@ -866,7 +882,7 @@ class FormTestCase(FormTestParent, unittest.TestCase):
         # test with no headers and config by default requires 1 
         cl.inner_main()
         match_at=out[0].find('Unable to verify sufficient headers')
-        print "result of subtest 1:", out[0]
+        print("result of subtest 1:", out[0])
         self.assertNotEqual(match_at, -1)
         del(out[0])
 
@@ -875,7 +891,7 @@ class FormTestCase(FormTestParent, unittest.TestCase):
         cl.env['HTTP_REFERER'] = 'http://whoami.com/path/'
         cl.inner_main()
         match_at=out[0].find('Redirecting to <a href="http://whoami.com/path/issue1?@ok_message')
-        print "result of subtest 2:", out[0]
+        print("result of subtest 2:", out[0])
         self.assertEqual(match_at, 0)
         del(cl.env['HTTP_REFERER'])
         del(out[0])
@@ -883,7 +899,7 @@ class FormTestCase(FormTestParent, unittest.TestCase):
         cl.env['HTTP_ORIGIN'] = 'http://whoami.com'
         cl.inner_main()
         match_at=out[0].find('Redirecting to <a href="http://whoami.com/path/issue1?@ok_message')
-        print "result of subtest 3:", out[0]
+        print("result of subtest 3:", out[0])
         self.assertEqual(match_at, 0)
         del(cl.env['HTTP_ORIGIN'])
         del(out[0])
@@ -897,7 +913,7 @@ class FormTestCase(FormTestParent, unittest.TestCase):
         cl.env['HTTP_HOST'] = 'frontend1.whoami.net'
         cl.inner_main()
         match_at=out[0].find('Redirecting to <a href="http://whoami.com/path/issue1?@ok_message')
-        print "result of subtest 4:", out[0]
+        print("result of subtest 4:", out[0])
         self.assertNotEqual(match_at, -1)
         del(cl.env['HTTP_X-FORWARDED-HOST'])
         del(cl.env['HTTP_HOST'])
@@ -906,7 +922,7 @@ class FormTestCase(FormTestParent, unittest.TestCase):
         cl.env['HTTP_HOST'] = 'whoami.com'
         cl.inner_main()
         match_at=out[0].find('Redirecting to <a href="http://whoami.com/path/issue1?@ok_message')
-        print "result of subtest 5:", out[0]
+        print("result of subtest 5:", out[0])
         self.assertEqual(match_at, 0)
         del(cl.env['HTTP_HOST'])
         del(out[0])
@@ -917,7 +933,7 @@ class FormTestCase(FormTestParent, unittest.TestCase):
         # it did the edit and tries to send mail.
         cl.inner_main()
         match_at=out[0].find('Invalid X-FORWARDED-HOST whoami.net')
-        print "result of subtest 6:", out[0]
+        print("result of subtest 6:", out[0])
         self.assertNotEqual(match_at, -1)
         del(cl.env['HTTP_X-FORWARDED-HOST'])
         del(out[0])
@@ -930,7 +946,7 @@ class FormTestCase(FormTestParent, unittest.TestCase):
         cl.db.config['WEB_CSRF_ENFORCE_TOKEN'] = 'required'
         cl.inner_main()
         match_at=out[0].find('<p>Csrf token is missing.</p>')
-        print "result of subtest 6a:", out[0], match_at
+        print("result of subtest 6a:", out[0], match_at)
         self.assertEqual(match_at, 33)
         del(out[0])
         cl.db.config['WEB_CSRF_ENFORCE_TOKEN'] = 'yes'
@@ -943,18 +959,18 @@ class FormTestCase(FormTestParent, unittest.TestCase):
 
         cl.inner_main()
         match_at=out[0].find('Invalid csrf token found: booogus')
-        print "result of subtest 7:", out[0]
+        print("result of subtest 7:", out[0])
         self.assertEqual(match_at, 36)
         del(out[0])
 
         form2 = copy.copy(form)
-        nonce = anti_csrf_nonce(cl, cl)
+        nonce = anti_csrf_nonce(cl)
         # verify that we can see the nonce
         otks = cl.db.getOTKManager()
         isitthere = otks.exists(nonce)
-        print "result of subtest 8:", isitthere
-        print "otks: user, session", otks.get(nonce, 'uid', default=None), \
-            otks.get(nonce, 'session', default=None)
+        print("result of subtest 8:", isitthere)
+        print("otks: user, session", otks.get(nonce, 'uid', default=None),
+              otks.get(nonce, 'session', default=None))
         self.assertEqual(isitthere, True)
 
         form2.update({'@csrf': nonce})
@@ -963,7 +979,7 @@ class FormTestCase(FormTestParent, unittest.TestCase):
         cl.inner_main()
         # csrf passes and redirects to the new issue.
         match_at=out[0].find('Redirecting to <a href="http://whoami.com/path/issue1?@ok_message')
-        print "result of subtest 9:", out[0]
+        print("result of subtest 9:", out[0])
         self.assertEqual(match_at, 0)
         del(out[0])
 
@@ -971,8 +987,8 @@ class FormTestCase(FormTestParent, unittest.TestCase):
         cl.inner_main()
         # This should fail as token was wiped by last run.
         match_at=out[0].find('Invalid csrf token found: %s'%nonce)
-        print "replay of csrf after post use", out[0]
-        print "result of subtest 10:", out[0]
+        print("replay of csrf after post use", out[0])
+        print("result of subtest 10:", out[0])
         self.assertEqual(match_at, 36)
         del(out[0])
 
@@ -980,30 +996,30 @@ class FormTestCase(FormTestParent, unittest.TestCase):
         cl.env['REQUEST_METHOD'] = 'GET' 
         cl.env['HTTP_REFERER'] = 'http://whoami.com/path/'
         form2 = copy.copy(form)
-        nonce = anti_csrf_nonce(cl, cl)
+        nonce = anti_csrf_nonce(cl)
         form2.update({'@csrf': nonce})
         # add a real csrf field to the form and rerun the inner_main
         cl.form = db_test_base.makeForm(form2)
         cl.inner_main()
         # csrf passes but fail creating new issue because not a post
         match_at=out[0].find('<p>Invalid request</p>')
-        print "result of subtest 11:", out[0]
+        print("result of subtest 11:", out[0])
         self.assertEqual(match_at, 33)
         del(out[0])
         
         # the token should be gone
         isitthere = otks.exists(nonce)
-        print "result of subtest 12:", isitthere
+        print("result of subtest 12:", isitthere)
         self.assertEqual(isitthere, False)
 
         # change to post and should fail w/ invalid csrf
         # since get deleted the token.
         cl.env.update({'REQUEST_METHOD': 'POST'})
-        print cl.env
+        print(cl.env)
         cl.inner_main()
         match_at=out[0].find('Invalid csrf token found: %s'%nonce)
-        print "post failure after get", out[0]
-        print "result of subtest 13:", out[0]
+        print("post failure after get", out[0])
+        print("result of subtest 13:", out[0])
         self.assertEqual(match_at, 36)
         del(out[0])
 
@@ -1043,7 +1059,7 @@ class FormTestCase(FormTestParent, unittest.TestCase):
         # Should return explanation because content type is text/plain
         # and not text/xml
         cl.handle_xmlrpc()
-        self.assertEqual(out[0], "This is the endpoint of Roundup <a href='http://www.roundup-tracker.org/docs/xmlrpc.html'>XML-RPC interface</a>.")
+        self.assertEqual(out[0], b"This is the endpoint of Roundup <a href='http://www.roundup-tracker.org/docs/xmlrpc.html'>XML-RPC interface</a>.")
         del(out[0])
 
         # Should return admin user indicating auth works and
@@ -1052,24 +1068,34 @@ class FormTestCase(FormTestParent, unittest.TestCase):
         # ship the form with the value holding the xml value.
         # I have no clue why this works but ....
         cl.form = MockNull(file = True, value = "<?xml version='1.0'?>\n<methodCall>\n<methodName>display</methodName>\n<params>\n<param>\n<value><string>user1</string></value>\n</param>\n<param>\n<value><string>username</string></value>\n</param>\n</params>\n</methodCall>\n" )
-        answer ="<?xml version='1.0'?>\n<methodResponse>\n<params>\n<param>\n<value><struct>\n<member>\n<name>username</name>\n<value><string>admin</string></value>\n</member>\n</struct></value>\n</param>\n</params>\n</methodResponse>\n"
+        answer = b"<?xml version='1.0'?>\n<methodResponse>\n<params>\n<param>\n<value><struct>\n<member>\n<name>username</name>\n<value><string>admin</string></value>\n</member>\n</struct></value>\n</param>\n</params>\n</methodResponse>\n"
         cl.handle_xmlrpc()
-        print out
+        print(out)
         self.assertEqual(out[0], answer)
         del(out[0])
 
         # remove the X-REQUESTED-WITH header and get an xmlrpc fault returned
         del(cl.env['HTTP_X-REQUESTED-WITH'])
         cl.handle_xmlrpc()
-        output="<?xml version='1.0'?>\n<methodResponse>\n<fault>\n<value><struct>\n<member>\n<name>faultCode</name>\n<value><int>1</int></value>\n</member>\n<member>\n<name>faultString</name>\n<value><string>&lt;class 'roundup.exceptions.UsageError'&gt;:Required Header Missing</string></value>\n</member>\n</struct></value>\n</fault>\n</methodResponse>\n"
-        print out[0]
-        self.assertEqual(output,out[0])
+        frag_faultCode = "<member>\n<name>faultCode</name>\n<value><int>1</int></value>\n</member>\n"
+        frag_faultString = "<member>\n<name>faultString</name>\n<value><string>&lt;class 'roundup.exceptions.UsageError'&gt;:Required Header Missing</string></value>\n</member>\n"
+        output_fragments = ["<?xml version='1.0'?>\n",
+                            "<methodResponse>\n",
+                            "<fault>\n",
+                            "<value><struct>\n",
+                            (frag_faultCode + frag_faultString,
+                             frag_faultString + frag_faultCode),
+                            "</struct></value>\n",
+                            "</fault>\n",
+                            "</methodResponse>\n"]
+        print(out[0])
+        self.compareStringFragments(out[0], output_fragments)
         del(out[0])
 
         # change config to not require X-REQUESTED-WITH header
         cl.db.config['WEB_CSRF_ENFORCE_HEADER_X-REQUESTED-WITH'] = 'logfailure'
         cl.handle_xmlrpc()
-        print out
+        print(out)
         self.assertEqual(out[0], answer)
         del(out[0])
 
@@ -1325,13 +1351,43 @@ class FormTestCase(FormTestParent, unittest.TestCase):
         self.assertEqual(cl._ok_message, ['Items edited OK'])
         k = self.db.keyword.getnode('1')
         self.assertEqual(k.name, 'newkey')
-        form = dict(rows=u'id,name\n1,\xe4\xf6\xfc'.encode('utf-8'))
+        form = dict(rows=u2s(u'id,name\n1,\xe4\xf6\xfc'))
         cl = self._make_client(form, userid='1', classname='keyword')
         cl._ok_message = []
         actions.EditCSVAction(cl).handle()
         self.assertEqual(cl._ok_message, ['Items edited OK'])
         k = self.db.keyword.getnode('1')
-        self.assertEqual(k.name, u'\xe4\xf6\xfc'.encode('utf-8'))
+        self.assertEqual(k.name, u2s(u'\xe4\xf6\xfc'))
+
+    def testEditCSVRestore(self):
+        form = dict(rows='id,name\n1,key1\n2,key2')
+        cl = self._make_client(form, userid='1', classname='keyword')
+        cl._ok_message = []
+        actions.EditCSVAction(cl).handle()
+        self.assertEqual(cl._ok_message, ['Items edited OK'])
+        k = self.db.keyword.getnode('1')
+        self.assertEqual(k.name, 'key1')
+        k = self.db.keyword.getnode('2')
+        self.assertEqual(k.name, 'key2')
+
+        form = dict(rows='id,name\n1,key1')
+        cl = self._make_client(form, userid='1', classname='keyword')
+        cl._ok_message = []
+        actions.EditCSVAction(cl).handle()
+        self.assertEqual(cl._ok_message, ['Items edited OK'])
+        k = self.db.keyword.getnode('1')
+        self.assertEqual(k.name, 'key1')
+        self.assertEqual(self.db.keyword.is_retired('2'), True)
+
+        form = dict(rows='id,name\n1,newkey1\n2,newkey2')
+        cl = self._make_client(form, userid='1', classname='keyword')
+        cl._ok_message = []
+        actions.EditCSVAction(cl).handle()
+        self.assertEqual(cl._ok_message, ['Items edited OK'])
+        k = self.db.keyword.getnode('1')
+        self.assertEqual(k.name, 'newkey1')
+        k = self.db.keyword.getnode('2')
+        self.assertEqual(k.name, 'newkey2')
 
     def testserve_static_files(self):
         # make a client instance
@@ -1454,7 +1510,7 @@ class FormTestCase(FormTestParent, unittest.TestCase):
         cl = self._make_client({'@columns': 'id,name'}, nodeid=None,
             userid='1')
         cl.classname = 'status'
-        output = StringIO.StringIO()
+        output = StringIO()
         cl.request = MockNull()
         cl.request.wfile = output
         actions.ExportCSVAction(cl).handle()
@@ -1467,7 +1523,7 @@ class FormTestCase(FormTestParent, unittest.TestCase):
         cl = self._make_client({'@columns': 'falseid,name'}, nodeid=None,
             userid='1')
         cl.classname = 'status'
-        output = StringIO.StringIO()
+        output = StringIO()
         cl.request = MockNull()
         cl.request.wfile = output
         self.assertRaises(exceptions.NotFound,
@@ -1477,7 +1533,7 @@ class FormTestCase(FormTestParent, unittest.TestCase):
         cl = self._make_client({'@columns': 'id,email,password'}, nodeid=None,
             userid='2')
         cl.classname = 'user'
-        output = StringIO.StringIO()
+        output = StringIO()
         cl.request = MockNull()
         cl.request.wfile = output
         # used to be self.assertRaises(exceptions.Unauthorised,
@@ -1492,7 +1548,7 @@ class FormTestCase(FormTestParent, unittest.TestCase):
         cl = self._make_client({'@columns': 'id,address,password'}, nodeid=None,
             userid='2')
         cl.classname = 'user'
-        output = StringIO.StringIO()
+        output = StringIO()
         cl.request = MockNull()
         cl.request.wfile = output
         # used to be self.assertRaises(exceptions.Unauthorised,
@@ -1609,7 +1665,7 @@ class TemplateHtmlRendering(unittest.TestCase):
         self.assertEqual(self.client._ok_message, [])
         
         result = self.client.renderContext()
-        print result
+        print(result)
         # sha1sum of classic tracker user.forgotten.template must be found
         sha1sum = '<!-- SHA: f93570f95f861da40f9c45bbd2b049bb3a7c0fc5 -->'
         self.assertNotEqual(-1, result.index(sha1sum))
@@ -1626,7 +1682,7 @@ class TemplateHtmlRendering(unittest.TestCase):
         self.assertEqual(self.client._error_message, ["this is an error"])
         
         result = self.client.renderContext()
-        print result
+        print(result)
         # sha1sum of classic tracker user.item.template must be found
         sha1sum = '<!-- SHA: 3b7ce7cbf24f77733c9b9f64a569d6429390cc3f -->'
         self.assertNotEqual(-1, result.index(sha1sum))
@@ -1638,7 +1694,7 @@ class TemplateHtmlRendering(unittest.TestCase):
         def te(url, exception, raises=ValueError):
             with self.assertRaises(raises) as cm:
                 examine_url(url)
-            self.assertEqual(cm.exception.message, exception)
+            self.assertEqual(cm.exception.args, (exception,))
 
 
         action = actions.Action(self.client)
@@ -1781,8 +1837,8 @@ class TemplateTestCase(unittest.TestCase):
         # be determined.
         with self.assertRaises(NoTemplate) as cm:
             t.selectTemplate("user", "")
-        self.assertEqual(cm.exception.message,
-                         '''Template "user" doesn't exist''')
+        self.assertEqual(cm.exception.args,
+                         ('''Template "user" doesn't exist''',))
 
         # there is no html/subdir/user.item.{,xml,html} so it will
         # raise NoTemplate.

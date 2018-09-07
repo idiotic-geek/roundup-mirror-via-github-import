@@ -1,5 +1,4 @@
-import re, cgi, time, random, csv, codecs
-from io import BytesIO
+import re, cgi, time, csv, codecs
 
 from roundup import hyperdb, token, date, password
 from roundup.actions import Action as BaseAction
@@ -8,6 +7,8 @@ from roundup.cgi import exceptions, templating
 from roundup.mailgw import uidFromAddress
 from roundup.exceptions import Reject, RejectRaw
 from roundup.anypy import urllib_
+from roundup.anypy.strings import StringIO
+import roundup.anypy.random_ as random_
 
 # Also add action to client.py::Client.actions property
 __all__ = ['Action', 'ShowAction', 'RetireAction', 'RestoreAction', 'SearchAction',
@@ -106,10 +107,10 @@ class Action:
             if parsed_url_tuple.scheme not in ('http', 'https'):
                 raise ValueError(self._("Unrecognized scheme in %(url)s")%info)
 
-        if parsed_url_tuple.netloc <> parsed_base_url_tuple.netloc:
+        if parsed_url_tuple.netloc != parsed_base_url_tuple.netloc:
             raise ValueError(self._("Net location in %(url)s does not match base: %(base_netloc)s")%info)
 
-        if parsed_url_tuple.path.find(parsed_base_url_tuple.path) <> 0:
+        if parsed_url_tuple.path.find(parsed_base_url_tuple.path) != 0:
             raise ValueError(self._("Base path %(base_path)s is not a prefix for url %(url)s")%info)
 
         # I am not sure if this has to be language sensitive.
@@ -413,7 +414,7 @@ class SearchAction(Action):
                     try:
                         float(self.form[key].value)
                     except ValueError:
-                        raise exceptions.FormError, "Invalid number: "+self.form[key].value
+                        raise exceptions.FormError("Invalid number: "+self.form[key].value)
                 elif isinstance(prop, hyperdb.Integer):
                     try:
                         val=self.form[key].value
@@ -422,7 +423,7 @@ class SearchAction(Action):
                         else:
                             raise ValueError
                     except ValueError:
-                        raise exceptions.FormError, "Invalid integer: "+val
+                        raise exceptions.FormError("Invalid integer: "+val)
 
             self.form.value.append(cgi.MiniFieldStorage('@filter', key))
 
@@ -475,7 +476,7 @@ class EditCSVAction(Action):
         props = ['id'] + props_without_id
 
         # do the edit
-        rows = BytesIO(self.form['rows'].value)
+        rows = StringIO(self.form['rows'].value)
         reader = csv.reader(rows)
         found = {}
         line = 0
@@ -503,7 +504,7 @@ class EditCSVAction(Action):
                 # If a CSV line just mentions an id and the corresponding
                 # item is retired, then the item is restored.
                 cl.restore(itemid)
-                continue
+                exists = 1
             else:
                 exists = 1
 
@@ -963,9 +964,9 @@ Your password is now: %(password)s
             return
 
         # generate the one-time-key and store the props for later
-        otk = ''.join([random.choice(chars) for x in range(32)])
+        otk = ''.join([random_.choice(chars) for x in range(32)])
         while otks.exists(otk):
-            otk = ''.join([random.choice(chars) for x in range(32)])
+            otk = ''.join([random_.choice(chars) for x in range(32)])
         otks.set(otk, uid=uid, uaddress=address)
         otks.commit()
 
@@ -1073,7 +1074,7 @@ class RegisterAction(RegoCommon, EditCommon):
 
         # generate the one-time-key and store the props for later
         user_props = props[('user', None)]
-        for propname, proptype in self.db.user.getprops().iteritems():
+        for propname, proptype in self.db.user.getprops().items():
             value = user_props.get(propname, None)
             if value is None:
                 pass
@@ -1084,9 +1085,9 @@ class RegisterAction(RegoCommon, EditCommon):
             elif isinstance(proptype, hyperdb.Password):
                 user_props[propname] = str(value)
         otks = self.db.getOTKManager()
-        otk = ''.join([random.choice(chars) for x in range(32)])
+        otk = ''.join([random_.choice(chars) for x in range(32)])
         while otks.exists(otk):
-            otk = ''.join([random.choice(chars) for x in range(32)])
+            otk = ''.join([random_.choice(chars) for x in range(32)])
         otks.set(otk, **user_props)
 
         # send the email
@@ -1159,7 +1160,7 @@ class LogoutAction(Action):
         # we don't the user gets an invalid CSRF token error
         # As above choose the home page since everybody can
         # see that.
-        raise exceptions.Redirect, self.base
+        raise exceptions.Redirect(self.base)
 
 class LoginAction(Action):
     def handle(self):
@@ -1220,7 +1221,7 @@ class LoginAction(Action):
                                                 redirect_url_tuple.netloc,
                                                 redirect_url_tuple.path,
                                                 redirect_url_tuple.params,
-                                                urllib_.urlencode(query, doseq=True),
+                                                urllib_.urlencode(list(sorted(query.items())), doseq=True),
                                                 redirect_url_tuple.fragment)
                                            )
 
@@ -1238,7 +1239,7 @@ class LoginAction(Action):
                                                     redirect_url_tuple.netloc,
                                                     redirect_url_tuple.path,
                                                     redirect_url_tuple.params,
-                                                    urllib_.urlencode(query, doseq=True),
+                                                    urllib_.urlencode(list(sorted(query.items())), doseq=True),
                                                     redirect_url_tuple.fragment )
                                                )
                 raise exceptions.Redirect(redirect_url)

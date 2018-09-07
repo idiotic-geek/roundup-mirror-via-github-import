@@ -40,7 +40,7 @@ class Indexer:
             return {}
 
         designator_propname = {}
-        for nm, propclass in klass.getprops().iteritems():
+        for nm, propclass in klass.getprops().items():
             if _isLink(propclass):
                 designator_propname.setdefault(propclass.classname,
                     []).append(nm)
@@ -49,7 +49,7 @@ class Indexer:
         # and files
         nodeids = {}      # this is the answer
         propspec = {}     # used to do the klass.find
-        for l in designator_propname.itervalues():
+        for l in designator_propname.values():
             for propname in l:
                 propspec[propname] = {}  # used as a set (value doesn't matter)
 
@@ -112,13 +112,13 @@ def get_indexer(config, db):
     if not indexer_name:
         # Try everything
         try:
-            from indexer_xapian import Indexer
+            from .indexer_xapian import Indexer
             return Indexer(db)
         except ImportError:
             pass
 
         try:
-            from indexer_whoosh import Indexer
+            from .indexer_whoosh import Indexer
             return Indexer(db)
         except ImportError:
             pass
@@ -126,11 +126,11 @@ def get_indexer(config, db):
         indexer_name = "native" # fallback to native full text search
 
     if indexer_name == "xapian":
-        from indexer_xapian import Indexer
+        from .indexer_xapian import Indexer
         return Indexer(db)
 
     if indexer_name == "whoosh":
-        from indexer_whoosh import Indexer
+        from .indexer_whoosh import Indexer
         return Indexer(db)
 
     if indexer_name == "native":

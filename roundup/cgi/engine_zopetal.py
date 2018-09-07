@@ -32,7 +32,7 @@ class Loader(TALLoaderBase):
             if error.errno != errno.ENOENT:
                 raise
 
-        if self.templates.has_key(src) and \
+        if src in self.templates and \
                 stime <= self.templates[src].mtime:
             # compiled template is up to date
             return self.templates[src]
@@ -79,15 +79,14 @@ class RoundupPageTemplate(PageTemplate.PageTemplate):
         __traceback_supplement__ = (PageTemplate.PageTemplateTracebackSupplement, self)
 
         if self._v_errors:
-            raise PageTemplate.PTRuntimeError, \
-                'Page Template %s has errors.'%self.id
+            raise PageTemplate.PTRuntimeError('Page Template %s has errors.'%self.id)
 
         # figure the context
         c = context(client, self, classname, request)
         c.update({'options': options})
 
         # and go
-        output = StringIO.StringIO()
+        output = StringIO()
         TALInterpreter.TALInterpreter(self._v_program, self.macros,
             getEngine().getContext(c), output, tal=1, strictinsert=0)()
         return output.getvalue()

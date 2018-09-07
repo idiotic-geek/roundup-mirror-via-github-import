@@ -21,13 +21,13 @@ Dummy TALES engine so that I can test out the TAL implementation.
 import re
 import sys
 
-from TALDefs import NAME_RE, TALESError, ErrorInfo
+from .TALDefs import NAME_RE, TALESError, ErrorInfo
 #from ITALES import ITALESCompiler, ITALESEngine
 #from DocumentTemplate.DT_Util import ustr
 ustr = str
 
 IDomain = None
-if sys.modules.has_key('Zope'):
+if 'Zope' in sys.modules:
     try:
         from Zope.I18n.ITranslationService import ITranslationService
         from Zope.I18n.IDomain import IDomain
@@ -114,12 +114,12 @@ class DummyEngine:
         if type == "not":
             return not self.evaluate(expr)
         if type == "exists":
-            return self.locals.has_key(expr) or self.globals.has_key(expr)
+            return expr in self.locals or expr in self.globals
         if type == "python":
             try:
                 return eval(expr, self.globals, self.locals)
             except:
-                raise TALESError("evaluation error in %s" % `expr`)
+                raise TALESError("evaluation error in %s" % repr(expr))
         if type == "position":
             # Insert the current source file name, line number,
             # and column offset.
@@ -128,16 +128,16 @@ class DummyEngine:
             else:
                 lineno, offset = None, None
             return '%s (%s,%s)' % (self.source_file, lineno, offset)
-        raise TALESError("unrecognized expression: " + `expression`)
+        raise TALESError("unrecognized expression: " + repr(expression))
 
     def evaluatePathOrVar(self, expr):
         expr = expr.strip()
-        if self.locals.has_key(expr):
+        if expr in self.locals:
             return self.locals[expr]
-        elif self.globals.has_key(expr):
+        elif expr in self.globals:
             return self.globals[expr]
         else:
-            raise TALESError("unknown variable: %s" % `expr`)
+            raise TALESError("unknown variable: %s" % repr(expr))
 
     def evaluateValue(self, expr):
         return self.evaluate(expr)
