@@ -33,7 +33,7 @@ except ImportError:
 from roundup import hyperdb
 from roundup import date
 from roundup import actions
-from roundup.anypy.strings import bs2b
+from roundup.anypy.strings import bs2b, b2s
 from roundup.exceptions import *
 from roundup.cgi.exceptions import *
 
@@ -166,8 +166,7 @@ def obtain_etags(headers,input):
     etags = []
     if '@etag' in input:
         etags.append(input['@etag'].value);
-    if "ETag" in headers:
-        etags.append(headers["ETag"])
+    etags.append(headers.get("ETag", None))
     return etags
 
 def parse_accept_header(accept):
@@ -227,8 +226,6 @@ def parse_accept_header(accept):
             else:
                 media_params.append((key, value))
         result.append((media_type, dict(media_params), q))
-    # was: result.sort(lambda x, y: -cmp(x[2], y[2]))
-    # change for python 3 support
     result.sort(key=lambda x: x[2], reverse=True)
     return result
 
@@ -1308,9 +1305,7 @@ class RestfulInstance(object):
         headers = self.client.request.headers
         # Never allow GET to be an unsafe operation (i.e. data changing).
         # User must use POST to "tunnel" DELETE, PUT, OPTIONS etc.
-        override = None
-        if 'X-HTTP-Method-Override' in headers:
-            override = headers['X-HTTP-Method-Override']
+        override = headers.get('X-HTTP-Method-Override')
         output = None
         if override:
             if method.upper() != 'GET':
@@ -1325,9 +1320,7 @@ class RestfulInstance(object):
                     uri)
 
         # parse Accept header and get the content type
-        accept_header = []
-        if 'Accept' in headers:
-            accept_header = parse_accept_header(headers['Accept'])
+        accept_header = parse_accept_header(headers.get('Accept'))
         accept_type = "invalid"
         for part in accept_header:
             if part[0] in self.__accepted_content_type:
@@ -1359,14 +1352,12 @@ class RestfulInstance(object):
             "Access-Control-Allow-Methods",
             "HEAD, OPTIONS, GET, PUT, DELETE, PATCH"
         )
-
         # Is there an input.value with format json data?
         # If so turn it into an object that emulates enough
         # of the FieldStorge methods/props to allow a response.
-        content_type_header = None
-        if 'Content-Type' in headers:
-            content_type_header = headers['Content-Type']
-        if type(input.value) == str and content_type_header:
+        content_type_header = headers.get('Content-Type', None)
+        # python2 is str type, python3 is bytes
+        if type(input.value) in ( str, bytes ) and content_type_header:
             parsed_content_type_header = content_type_header
             # the structure of a content-type header
             # is complex: mime-type; options(charset ...)
@@ -1381,7 +1372,7 @@ class RestfulInstance(object):
             # for example.
             if content_type_header.lower() == "application/json":
                 try:
-                    input = SimulateFieldStorageFromJson(input.value)
+                    input = SimulateFieldStorageFromJson(b2s(input.value))
                 except ValueError as msg:
                     output = self.error_obj(400, msg)
 

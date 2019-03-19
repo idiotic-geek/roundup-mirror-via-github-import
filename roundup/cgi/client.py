@@ -380,6 +380,7 @@ class Client:
             # data blobs under python 3. Under python 2, str and binary
             # are interchangable, not so under 3.
             def make_file(self):
+                ''' work around https://bugs.python.org/issue27777 '''
                 import tempfile
                 return tempfile.TemporaryFile("wb+")
 
